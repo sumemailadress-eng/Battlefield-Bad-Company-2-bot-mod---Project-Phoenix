@@ -1179,6 +1179,17 @@ static void veh_claim(uint32_t e, Bot *b, double now, double secs)
     for (int i = 0; i < MAX_VEH; i++) if (g_vehClaim[i] == e || now >= g_vehClaimUntil[i]) { slot = i; if (g_vehClaim[i] == e) break; }
     if (slot >= 0) { g_vehClaim[slot] = e; g_vehClaimBot[slot] = (int)(b - g_bots); g_vehClaimUntil[slot] = now + secs; }
 }
+/* 1.6.8: a vehicle its crew left for want of a route (no drivable route, waited 25 s, no progress) is left alone for a
+   while. 1.6.7 let the next bot - or the same one, "back to the ride we came in" - board it again 6 s later, wait 25 s
+   and get out: the vehicle parked at a freshly taken flag held its team there for the rest of the round. */
+static uint32_t g_vehBan[MAX_VEH]; static double g_vehBanUntil[MAX_VEH];
+static int veh_banned(uint32_t e, double now) { for (int i = 0; i < MAX_VEH; i++) if (g_vehBan[i] == e && now < g_vehBanUntil[i]) return 1; return 0; }
+static void veh_ban(uint32_t e, double now, double secs)
+{
+    if (!e) return;
+    int slot = 0; for (int i = 0; i < MAX_VEH; i++) { if (g_vehBan[i] == e) { slot = i; break; } if (g_vehBanUntil[i] < g_vehBanUntil[slot]) slot = i; }
+    g_vehBan[slot] = e; g_vehBanUntil[slot] = now + secs;
+}
 /* crews (1.0.1): live 1.0 had RU bots deploy at the flags while their T-90s and Mi-28 sat at the base. A bot whose flag
    is far away may deploy at the spawn next to an idle vehicle of its team and take it (up to 3 drivers and every
    helicopter per team). */
@@ -1197,7 +1208,7 @@ static int crew_spawn(Bot *b, const int *cand, int n, const float *to)
         if (heli ? !g_cfg.helicopters : (v->kind != VK_GROUND && v->kind != VK_UNKNOWN)) continue;
         if (!heli && drivers >= 5) continue;
         if (cc && (cc->ok < 0 || cc->crashes >= 3)) continue;
-        if (eng_vehicle_occupant(v->entity, 0) || veh_claimed(v->entity, b, now)) continue;
+        if (eng_vehicle_occupant(v->entity, 0) || veh_claimed(v->entity, b, now) || veh_banned(v->entity, now)) continue;
         VehicleInfo nv; if (!world_vehicle_read(v->entity, &nv)) continue;
         for (int k = 0; k < n; k++) {
             const SpawnPoint *sp = &g_world.spawns[cand[k]]; if (!sp->posValid) continue;
@@ -1318,6 +1329,7 @@ static void vehicle_consider(Bot *b, double now, int engaging)
         int heli = v->kind == VK_HELI || (ac && ac->air), ground = !heli && (v->kind == VK_GROUND || v->kind == VK_UNKNOWN);   /* unnamed ones are tested by driving */
         if (!heli && v->kind == VK_BOAT && g_cfg.boats) ground = 1;   /* boats: only when there is water towards the flag (below) */
         if (!(ground || (heli && g_cfg.helicopters))) continue;
+        if (veh_banned(v->entity, now)) continue;   /* 1.6.8: no route from where it stands - walk the route instead */
         int mine = v->entity == b->lastVeh;
         if (v->team && v->team != b->team && !mine) continue;   /* the other side's vehicles are theirs */
         /* a helicopter's gunner seat: any job, as long as a teammate flies it or is about to */
@@ -2066,6 +2078,26 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     }
     if (b->vehRole == VR_PASSENGER) {
         uint32_t driver = eng_vehicle_occupant(veh, 0);
+        /* 1.6.8: seat 0 can still name a driver who has got out (or a bot that dropped its vehicle job): passengers and
+           gunners then sat in a parked vehicle until "the ride is not getting closer" 35 s later. A driver counts only
+           while the game has him controlling this vehicle. */
+        if (driver && eng_player_controlled(driver) != veh) driver = 0;
+        { Bot *db = driver ? bot_of_player(driver) : NULL; if (db && (db->vehRole != VR_DRIVER || db->vehicle != veh)) driver = 0; }
+        /* no driver: take the wheel when bots drive this kind and the flag is worth driving to, else get out */
+        if (!driver && vi.kind != VK_HELI && inFor > 1.5 && g_cfg.vehicles >= 2 && (vi.kind == VK_GROUND || vi.kind == VK_UNKNOWN) &&
+            f >= 0 && distFlag >= (veh_armoured(vi.name) ? 80 : 110) && !veh_banned(veh, now)) {
+            const DriveCalib *dc = calib_for(vi.data, 0);
+            if (!(dc && (dc->ok < 0 || dc->crashes >= 3)) && eng_vehicle_seat_allowed(veh, b->player, 0)) {
+                eng_enter_vehicle(b->player, veh, 0);
+                if (eng_vehicle_occupant(veh, 0) == b->player) {
+                    b->seat = 0; b->vehRole = VR_DRIVER; b->vehSince = now; b->vehProgressAt = now; b->vehProgressDist = 1e30f; b->steerCalib = 0; b->reverseUntil = 0; b->unpinTries = 0;
+                    b->pathLen = 0; b->pathPending = 0; b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12); b->noRouteSince = 0; b->routeWaitSince = 0;
+                    memcpy(b->calibStart, vi.pos, 12); b->calibAt = now; veh_claim(veh, b, now, 600);
+                    rt_log("vehicles: %s moves over to drive '%s' (the driver got out)", b->name, vi.name);
+                    return;
+                }
+            }
+        }
         { const DriveCalib *dc = calib_for(vi.data, 0); vehicle_shoot(b, now, &vi, b->seat, -1, dc && dc->fwdSign < 0 ? -1.0f : 1.0f); }   /* gunner seats: aim and fire */
         if (vi.kind == VK_HELI && b->seat == 1) {   /* the helicopter's gunner stays with it */
             if (!driver) { if (inFor > 6) { vehicle_leave(b, now, "no pilot"); return; } }
@@ -2079,7 +2111,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         if (vi.kind == VK_HELI && driver) {   /* a bot pilot that has landed is dropping us off */
             for (int k = 0; k < MAX_BOTS; k++) if (g_bots[k].used && g_bots[k].player == driver && g_bots[k].hState == HS_GROUND) { vehicle_leave(b, now, "dropped off"); return; }
         }
-        if (!driver) { if (inFor > 4) { vehicle_leave(b, now, "no driver"); return; } }
+        if (!driver) { if (inFor > 1.5) { vehicle_leave(b, now, "no driver"); return; } }
         else b->vehEnterUntil = 0;
         if (now - b->vehProgressAt > 35 || inFor > 180) { vehicle_leave(b, now, "the ride is not getting closer"); return; }
         return;
@@ -2136,7 +2168,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         if (now > b->vehParkAt) vehicle_leave(b, now, "end of the drivable route - on foot from here");
         return;
     }
-    if (now - b->vehProgressAt > 35 && vi.kind != VK_BOAT) { vehicle_leave(b, now, "no progress in 35 s"); return; }
+    if (now - b->vehProgressAt > 35 && vi.kind != VK_BOAT) { veh_ban(veh, now, 90); vehicle_leave(b, now, "no progress in 35 s"); return; }
     DriveCalib *c = calib_for(vi.data, 1);
     if (!c) { vehicle_leave(b, now, "calibration table full"); return; }
     if (!c->ok && !c->presetGround && (vi.kind == VK_GROUND || vi.kind == VK_BOAT)) {
@@ -2259,8 +2291,8 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     if (!b->pathLen) {
         if (!b->routeWaitSince) b->routeWaitSince = now;
         veh_hold(b, c); b->vehProgressAt = now;
-        if (b->noRouteSince && now - b->noRouteSince > 8) { b->noRouteSince = 0; b->routeWaitSince = 0; vehicle_leave(b, now, "no drivable route to the flag"); return; }
-        if (now - b->routeWaitSince > 25) { b->routeWaitSince = 0; vehicle_leave(b, now, "waited 25 s for a route"); return; }
+        if (b->noRouteSince && now - b->noRouteSince > 8) { b->noRouteSince = 0; b->routeWaitSince = 0; veh_ban(veh, now, 90); vehicle_leave(b, now, "no drivable route to the flag"); return; }
+        if (now - b->routeWaitSince > 25) { b->routeWaitSince = 0; veh_ban(veh, now, 90); vehicle_leave(b, now, "waited 25 s for a route"); return; }
         if (!engaged) { b->yaw = yaw_from_heading(heading_to(vi.pos, goal)); b->pitch = 0; }
         return;
     }

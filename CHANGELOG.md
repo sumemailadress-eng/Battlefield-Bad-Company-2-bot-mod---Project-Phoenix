@@ -23,6 +23,14 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.6.8 - off the first flag, vehicles on the roads, no crews left sitting
+
+- **Bots no longer stay at the first flag they take.** The vehicle that spawns at a newly taken flag often had no route out ("A* exhausted after 1 nodes"). A bot got in, waited 25 s for a route, got out - and 6 s later it or a teammate got back in ("back to the ride we came in"). In the 1.6.7 log a whole team sat at CommCenter this way. Now a vehicle its crew left for want of a route (no drivable route, waited 25 s, no progress in 35 s) is left alone for 90 s, and the bots walk their route to the next flag.
+- **Why there was no route: the vehicle's own hull.** The planner checks a vehicle route with physics rays that start at the vehicle - inside its own hull - so the first leg always looked obstructed and the edges round the start were blocked one by one. The 5.5 m around the vehicle are no longer ray-tested (the drive map already keeps it off walls).
+- **Vehicles follow the roads.** 1.6.7 drove a straight line at the flag whenever open ground was drivable within 120 m - the most common vehicle route in the log was two points, the vehicle and the flag, across the fields beside the road. That short cut is now for the last 30 m only, and a smoothed route leg with one end on a road may leave it for 3 cells at most, so the route turns off the road where the planner turned off.
+- **Passengers and gunners when the driver gets out.** Seat 0 could still name a driver who had left, so a crew sat in a parked vehicle until "the ride is not getting closer" 35 s later. A driver now counts only while the game has him controlling the vehicle. With no driver, a passenger moves over and drives when bots drive that vehicle and the flag is far enough; otherwise everyone gets out after 1.5 s.
+- Built with clang (LLVM) + the Visual Studio 2022 Build Tools libraries (static runtime), see `build-msvc.sh`; the MinGW `build.sh` still works.
+
 ## What changed in 1.6.7 - always on a route
 
 - **Back on the route after a fight.** Fighting (planted feet, strafing, a knife rush), a side-step or a push can leave a soldier metres off its route; 1.6.6 then walked straight at its old waypoint through whatever stood in between. Twice a second each bot now checks its route: a later waypoint that is closer and in clear sight is taken; more than 5 m off the current leg, or walled off from the next waypoint, and it plans a new route from where it stands ("move: Joe is 7 m off its route - a new route from here").

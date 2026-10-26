@@ -63,6 +63,27 @@ static void request_block_edge(NavRequest *q,int from,int to)
     unsigned k=g_vehicleEdgeNext[g_activeRequest]++%32;
     g_vehicleEdges[g_activeRequest][k]=(VehicleEdgeBlock){q->serial,from,to,now_ms()+30000};
 }
+/* 1.6.8: a vehicle request's rays start at the vehicle, inside its own hull: the 7 lines up to 1.8 m either side hit
+   the vehicle itself, the first leg was "obstructed", the edges round the start were blocked one by one and the search
+   ended "A* exhausted after 1 nodes" - a tank parked at a flag never got a route out. The part of a segment within
+   5.5 m of the request's start is not tested (the vehicle is there; the drive map already keeps it off walls). */
+#define OWN_HULL_R 5.5f
+static int request_segment_clear(const NavRequest *q,const float *a,const float *b)
+{
+    if(!q->mask)return nav_segment_clear(q->ray,a,b);
+    float s[3],e[3];memcpy(s,a,12);memcpy(e,b,12);
+    float da=hypotf(a[0]-q->source[0],a[2]-q->source[2]),db=hypotf(b[0]-q->source[0],b[2]-q->source[2]);
+    if(da<OWN_HULL_R && db<OWN_HULL_R)return 1;
+    if(da<OWN_HULL_R || db<OWN_HULL_R){
+        const float *in=da<OWN_HULL_R?a:b,*out=da<OWN_HULL_R?b:a;float *clip=da<OWN_HULL_R?s:e;
+        float vx=out[0]-in[0],vz=out[2]-in[2],L2=vx*vx+vz*vz;if(L2<1e-4f)return 1;
+        /* the point where the segment leaves the circle round the start */
+        float fx=in[0]-q->source[0],fz=in[2]-q->source[2],bq=2*(fx*vx+fz*vz),cq=fx*fx+fz*fz-OWN_HULL_R*OWN_HULL_R,disc=bq*bq-4*L2*cq;
+        float t=disc>0?(-bq+sqrtf(disc))/(2*L2):1;t=fmaxf(0,fminf(1,t));
+        for(int j=0;j<3;j++)clip[j]=in[j]+(out[j]-in[j])*t;
+    }
+    return nav_segment_clear(q->ray,s,e);
+}
 static void request_clear(int owner)
 {
     nav_release(g_requests[owner].nodes);
@@ -98,7 +119,9 @@ static int request_begin(NavRequest *q)
     if(q->start<0 && q->mask && !q->longLegs && q->goal>=0 && !q->prefix){q->phase=3;return 1;}
     if(q->start<0 || q->goal<0){request_finish(q,0,q->start<0?"no start node":"no goal node");return 0;}
     float directDistance=hypotf(q->source[0]-q->target[0],q->source[2]-q->target[2]);
-    if(q->mask && !q->prefix && directDistance<120 && nav_direct_route(g,q->ray,q->source,q->target)){
+    // 1.6.8: 30 m (was 120): "clear, so drive straight" sent vehicles across the fields beside the road - in the 1.6.7
+    // log the most common vehicle route was the vehicle and the flag, nothing between. Further out, A* finds the road.
+    if(q->mask && !q->prefix && directDistance<30 && nav_direct_route(g,q->ray,q->source,q->target)){
         memcpy(q->points,q->target,12);q->links[0]=-1;q->n=1;
         request_finish(q,1,"ok (clear direct driving route)");return 0;
     }
@@ -158,7 +181,7 @@ static int request_rescue(NavRequest *q,double deadline)
                fabsf(g->height[node]-g->height[origin])>1.5f)continue;
             float p[3];node_pos(g,node,p);
             if(q->mask){g_pathMask=NULL;int connected=straight_walkable(g,origin,node);g_pathMask=savedMask;if(!connected)continue;}
-            if(q->ray && !nav_segment_clear(q->ray,q->source,p))continue;
+            if(q->ray && !request_segment_clear(q,q->source,p))continue;
             q->rescueAttempts++;q->prefix=1;memcpy(q->prefixPos,p,12);
             return request_begin(q);
         }
@@ -242,7 +265,7 @@ static void request_advance(NavRequest *q,double deadline)
             if(q->mask && g_vehicleAvoid[3]>0){float p[3];node_pos(g,nb,p);if(vehicle_avoids_point(p[0],p[1],p[2]))continue;}
             if(q->scanPhysics){
                 float from[3],to[3];node_pos(g,cur,from);node_pos(g,nb,to);
-                if(!nav_segment_clear(q->ray,from,to)){request_block_edge(q,cur,nb);continue;}
+                if(!request_segment_clear(q,from,to)){request_block_edge(q,cur,nb);continue;}
             }
             if((d&1) && step_node(g,cur,(d+7)&7)<0 && step_node(g,cur,(d+1)&7)<0)continue;
             float climb=g->height[nb]-g->height[cur],step=((d&1)?1.4142f:1.0f)*g->cell;
@@ -285,7 +308,7 @@ static void request_advance(NavRequest *q,double deadline)
             int j=q->trial--;
             if(q->anchor>=0 && !straight_walkable(g,q->nodes[q->anchor],q->nodes[j]))continue;
             float to[3];node_pos(g,q->nodes[j],to);
-            if(q->ray && !nav_segment_clear(q->ray,q->fromPos,to))continue;
+            if(q->ray && !request_segment_clear(q,q->fromPos,to))continue;
             q->next=j;break;
         }
         if(link<0 && q->next==q->anchor+1 && q->anchor>=0 && q->n<q->maxPts-1){
@@ -302,7 +325,7 @@ static void request_advance(NavRequest *q,double deadline)
         }
         if(q->mask && q->ray){
             float to[3];node_pos(g,q->nodes[q->next],to);
-            if(!nav_segment_clear(q->ray,q->fromPos,to)){
+            if(!request_segment_clear(q,q->fromPos,to)){
                 int from=q->anchor>=0?q->nodes[q->anchor]:q->start;
                 request_block_edge(q,from,q->nodes[q->next]);
                 // Do not discard clear waypoints because a distant corner is

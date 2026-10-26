@@ -603,6 +603,9 @@ static int straight_walkable(const NavGrid *g, int a, int b)
        the field), and one between two cells a human drove stays on what he drove */
     int ca = g_pathMask ? g_pathMask[a] : 0, cb = g_pathMask ? g_pathMask[b] : 0;
     int keepHuman = ca == 6 && cb == 6, keepRoad = (ca == 1 || ca == 6 || ca == 7) && (cb == 1 || cb == 6 || cb == 7);   // 7: the level's own road (1.6.6)
+    /* 1.6.8: a short cut with only ONE end on the road may leave it for 3 cells at most - the route turns off the road
+       where A* turned off, not 80 m back up it straight across the field */
+    int nearRoad = !keepRoad && g_pathMask && (ca == 1 || ca == 6 || ca == 7 || cb == 1 || cb == 6 || cb == 7), offRoad = 0;
     int dx = abs(x1 - x), dz = abs(z1 - z), sx = x < x1 ? 1 : -1, sz = z < z1 ? 1 : -1, err = dx - dz;
     while (x != x1 || z != z1) {
         int e2 = 2 * err, mx = 0, mz = 0;
@@ -617,6 +620,7 @@ static int straight_walkable(const NavGrid *g, int a, int b)
         if (g_pathMask && g_pathMask[node] == 5 && node != b) return 0;   // no short cut past a tree trunk
         if (keepHuman && g_pathMask[node] != 6 && node != b) return 0;
         if (keepRoad && g_pathMask[node] != 1 && g_pathMask[node] != 6 && g_pathMask[node] != 7 && node != b) return 0;
+        if (nearRoad && g_pathMask[node] != 1 && g_pathMask[node] != 6 && g_pathMask[node] != 7 && ++offRoad > 3) return 0;
         if (!g_pathMask && TREE_DIST(g) && TREE_DIST(g)[node] <= TREE_NEAR_DM && node != b) return 0;
         x += mx;
         z += mz;
