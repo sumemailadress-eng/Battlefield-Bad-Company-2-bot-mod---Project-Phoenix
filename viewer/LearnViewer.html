@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Phoenix Learning Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: survey-table tool - a narrow ledger of maps on the left, the terrain sheet in the middle, readings on the right. */
+:root {
+  --ground: #e9ebe4;      /* map table */
+  --sheet: #f6f7f2;       /* panels */
+  --ink: #1f2620;         /* text */
+  --ink-2: #5b655c;       /* secondary text */
+  --rule: #c9cec3;        /* lines */
+  --accent: #b5651d;      /* survey marker orange */
+  --death: #c43d2f;
+  --kill: #2f8a4c;
+  --walk: #1f7fb0;
+  --drive: #c7911a;
+  --route: #d6286f; --road: #6b7280;
+  --stuck: #7a3fb0;
+  --spot: #0f6e6a;
+  --terrain-lo: #8e9a7f;
+  --terrain-hi: #e8e2cf;
+  --void: #39413a;
+  --water: #4f86a8;
+  --f-display: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --ground: #161b17; --sheet: #1e2520; --ink: #e3e7df; --ink-2: #9aa59b; --rule: #34403a; --accent: #e08a3c;
+  --death: #ef6a5a; --kill: #5cc27d; --walk: #57b4e6; --drive: #e8b94a; --stuck: #b48ae6; --spot: #4fc2bb; --route: #ff5fa2; --road: #a3a9b5;
+  --terrain-lo: #3e4a3c; --terrain-hi: #a9a68f; --void: #0d100e; --water: #2f6688; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --ground: #161b17; --sheet: #1e2520; --ink: #e3e7df; --ink-2: #9aa59b; --rule: #34403a; --accent: #e08a3c;
+  --death: #ef6a5a; --kill: #5cc27d; --walk: #57b4e6; --drive: #e8b94a; --stuck: #b48ae6; --spot: #4fc2bb; --route: #ff5fa2; --road: #a3a9b5;
+  --terrain-lo: #3e4a3c; --terrain-hi: #a9a68f; --void: #0d100e; --water: #2f6688; color-scheme: dark }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.45; }
+.wrap { min-height: 100%; display: flex; flex-direction: column; gap: 12px; padding-block: 14px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); box-sizing: border-box; }
+header { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 20px; }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: 30px; letter-spacing: .02em; margin: 0; text-transform: uppercase; line-height: 1; text-wrap: balance; }
+h1 small { font-weight: 500; color: var(--ink-2); font-size: 16px; letter-spacing: .08em; margin-left: 8px; }
+.open { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; align-items: center; }
+.btn { font: 600 13px var(--f-body); border: 1px solid var(--ink); background: var(--sheet); color: var(--ink); padding: 7px 12px; border-radius: 3px; cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { color: var(--ink-2); font-size: 12.5px; max-width: 70ch; }
+.badge { font: 600 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 2px; }
+main { display: grid; grid-template-columns: 230px minmax(0, 1fr) 290px; gap: 12px; height: clamp(520px, calc(100vh - 150px), 1100px); }
+main > .panel { min-height: 0; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 3px; min-width: 0; display: flex; flex-direction: column; }
+.panel h2 { font: 600 13px var(--f-display); letter-spacing: .12em; text-transform: uppercase; margin: 0; padding: 10px 12px 8px; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
+.maps { list-style: none; margin: 0; padding: 4px 0; overflow: auto; flex: 1; min-height: 0; }
+.maps li button { all: unset; box-sizing: border-box; display: grid; gap: 2px; width: 100%; padding: 8px 12px; cursor: pointer; border-left: 3px solid transparent; }
+.maps li button:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.maps li button[aria-current="true"] { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.maps li button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.mname { font-weight: 600; }
+.mmeta { font: 12px var(--f-mono); color: var(--ink-2); }
+.stage { position: relative; overflow: hidden; }
+canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+canvas.drag { cursor: grabbing; }
+.legend { position: absolute; left: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 20px); }
+.legend label { display: flex; align-items: center; gap: 6px; font: 500 12px var(--f-body); background: var(--sheet); border: 1px solid var(--rule); padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+.sw { width: 10px; height: 10px; border-radius: 50%; }
+.tip { position: absolute; pointer-events: none; background: var(--sheet); border: 1px solid var(--ink); padding: 6px 9px; font: 12px var(--f-mono); max-width: 260px; border-radius: 2px; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+.scale { position: absolute; right: 10px; bottom: 10px; font: 11px var(--f-mono); color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); padding: 3px 7px; border-radius: 2px; }
+.zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.zoom .btn { width: 30px; padding: 4px 0; }
+.tools { position: absolute; left: 10px; top: 10px; display: flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 70px); }
+.tools .btn[aria-pressed="true"] { background: var(--route); border-color: var(--route); color: #fff; }
+.tools .note { font: 12px var(--f-body); background: var(--sheet); border: 1px solid var(--rule); padding: 4px 8px; border-radius: 3px; }
+canvas.drawing { cursor: crosshair; }
+.stats { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule); border-bottom: 1px solid var(--rule); }
+.stat { background: var(--sheet); padding: 9px 12px; }
+.stat b { display: block; font: 600 22px var(--f-display); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11.5px; color: var(--ink-2); letter-spacing: .04em; text-transform: uppercase; }
+.list { overflow: auto; padding: 4px 0 8px; flex: 1; min-height: 0; }
+.list h3 { font: 600 12px var(--f-display); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); margin: 10px 12px 4px; }
+table { width: 100%; border-collapse: collapse; font: 12px var(--f-mono); font-variant-numeric: tabular-nums; }
+td, th { padding: 3px 12px 3px 0; text-align: left; white-space: nowrap; }
+td:first-child, th:first-child { padding-left: 12px; }
+th { color: var(--ink-2); font-weight: 500; }
+tr.row { cursor: pointer; }
+tr.row:hover td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.empty { padding: 14px 12px; color: var(--ink-2); font-size: 13px; }
+.drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; } .stage { height: 440px; } .maps { max-height: 180px; } .list { max-height: 420px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap" id="app">
+  <header>
+    <h1>Phoenix Learning Map <small>what the bots know</small></h1>
+    <span class="badge" id="srcBadge">Example data</span>
+    <div class="open">
+      <label class="btn primary" for="folder">Open navcache folder</label>
+      <input id="folder" type="file" webkitdirectory directory multiple hidden>
+      <label class="btn" for="files">Open files</label>
+      <input id="files" type="file" multiple accept=".learn,.nav,.routes,.roads" hidden>
+    </div>
+    <p class="hint">Pick the <code>navcache</code> folder inside your Project Phoenix folder (or drop its files here). Each map's <code>.learn</code> file is drawn over its <code>.nav</code> terrain. Nothing leaves this page.</p>
+  </header>
+  <main>
+    <section class="panel"><h2>Maps</h2><ul class="maps" id="maps"></ul></section>
+    <section class="panel stage" id="stage">
+      <canvas id="cv" aria-label="Learning map"></canvas>
+      <div class="tools"><button class="btn" id="rDraw" aria-pressed="false">Draw vehicle route</button><button class="btn" id="rUndo">Undo point</button><button class="btn" id="rEnd">Finish route</button><button class="btn" id="rSave">Save routes</button><span class="note" id="rNote" hidden></span></div>
+      <div class="zoom"><button class="btn" id="zin" aria-label="Zoom in">+</button><button class="btn" id="zout" aria-label="Zoom out">−</button><button class="btn" id="zfit" aria-label="Fit map">⤢</button></div>
+      <div class="legend" id="legend"></div>
+      <div class="scale" id="scale"></div>
+      <div class="tip" id="tip" hidden></div>
+    </section>
+    <section class="panel"><h2 id="sideTitle">Readings</h2><div class="stats" id="stats"></div><div class="list" id="list"></div></section>
+  </main>
+</div>
+
+<script>
+(() => {
+const LAYERS_DEF = [
+  { key: 'death', label: 'Deaths', color: '--death', on: true },
+  { key: 'kill', label: 'Kills', color: '--kill', on: false },
+  { key: 'walk', label: 'Human walks', color: '--walk', on: true },
+  { key: 'drive', label: 'Human drives', color: '--drive', on: true },
+  { key: 'stuck', label: 'Stuck spots', color: '--stuck', on: true },
+  { key: 'spot', label: 'Sniper / window spots', color: '--spot', on: true },
+  { key: 'roads', label: "Map's roads (level data)", color: '--road', on: true },
+  { key: 'routes', label: 'Drawn vehicle routes', color: '--route', on: true },
+];
+const FIXES = ['jump', 'knife', 'crouch', 'detour', 'back'];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let maps = {}, cur = null, layers = {}, view = { s: 1, ox: 0, oy: 0 };
+let drawing = false, editing = [], dirty = false;
+try { const saved = JSON.parse(localStorage.getItem('phx-layers') || 'null'); if (saved) layers = saved; } catch (e) {}
+LAYERS_DEF.forEach(l => { if (!(l.key in layers)) layers[l.key] = l.on; });
+
+/* ---------- parsing ---------- */
+function parseLearn(text) {
+  const m = { title: '', level: '', death: [], kill: [], walk: [], drive: [], stuck: [], spot: [], vstuck: [] };
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim(); if (!line) continue;
+    if (line[0] === '#') { const t = line.match(/learned on (.*?) \(([^)]*)\)\. /); if (t && !m.title) { m.title = t[1]; } continue; }
+    const p = line.split(/\s+/), k = p[0], v = p.slice(1).map(Number);
+    if (k === 'stuck' && v.length >= 11) m.stuck.push({ x: v[0], y: v[1], z: v[2], hd: v[3], seen: v[4], fix: v.slice(5, 10), bad: v[10], cut: v[11] | 0 });
+    else if ((k === 'death' || k === 'kill') && v.length >= 3) m[k].push({ x: v[0], z: v[1], n: v[2] });
+    else if ((k === 'walk' || k === 'drive') && v.length >= 3) m[k].push({ x: v[0], z: v[1], n: v[2] });
+    else if (k === 'vstuck' && v.length >= 3) m.vstuck.push({ x: v[0], y: v[1], z: v[2] });
+    else if (k === 'spot' && v.length >= 6) m.spot.push({ x: v[0], y: v[1], z: v[2], kills: v[3], deaths: v[4], uses: v[5] });
+  }
+  return m;
+}
+/* drawn vehicle routes: "route" starts one, then "x z" per point (navcache\<map>.routes, read by Phoenix 1.6.4+) */
+function parseRoutes(text) {
+  const out = []; let r = null;
+  for (const raw of text.split(/\r?\n/)) { const line = raw.trim(); if (!line || line[0] === '#') continue;
+    if (/^route/i.test(line)) { r = []; out.push(r); continue; }
+    const v = line.split(/\s+/).map(Number); if (v.length >= 2 && isFinite(v[0]) && isFinite(v[1])) { if (!r) { r = []; out.push(r); } r.push({ x: v[0], z: v[1] }); } }
+  return out.filter(r => r.length >= 2);
+}
+function routesText(m) {
+  let t = '# Phoenix vehicle routes for ' + (m.title || m.key) + ' - drawn in the learning map. Bot drivers prefer these over\n# everything else (x0.3 a metre). Keep this file in navcache next to ' + m.key + '.nav; Phoenix reads it again when it changes.\n';
+  for (const r of m.routes) { t += 'route\n'; for (const p of r) t += p.x.toFixed(1) + ' ' + p.z.toFixed(1) + '\n'; }
+  return t;
+}
+function parseNav(buf) {
+  const dv = new DataView(buf); if (buf.byteLength < 60) return null;
+  const magic = dv.getUint32(0, true); if (magic !== 0x3556414e && magic !== 0x3456414e) return null;
+  let level = ''; for (let i = 4; i < 36; i++) { const c = dv.getUint8(i); if (!c) break; level += String.fromCharCode(c); }
+  const x0 = dv.getFloat32(36, true), z0 = dv.getFloat32(40, true), cell = dv.getFloat32(44, true);
+  const w = dv.getInt32(48, true), h = dv.getInt32(52, true), L = dv.getInt32(56, true), n = w * h * L;
+  if (w <= 0 || h <= 0 || L <= 0 || buf.byteLength < 60 + n * 6) return null;
+  const heights = new Float32Array(buf.slice(60, 60 + n * 4)), flags = new Uint8Array(buf, 60 + n * 4, n);
+  const top = new Float32Array(w * h).fill(NaN), water = new Uint8Array(w * h);
+  for (let c = 0; c < w * h; c++) for (let l = 0; l < L; l++) { const f = flags[c * L + l]; if (f & 1) { top[c] = heights[c * L + l]; water[c] = f & 2 ? 1 : 0; break; } }
+  return { level, x0, z0, cell, w, h, top, water };
+}
+
+/* ---------- example data (shown until a folder is opened) ---------- */
+function exampleMap() {
+  const w = 160, h = 120, cell = 2.5, x0 = -200, z0 = -150, top = new Float32Array(w * h), water = new Uint8Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const x = x0 + i * cell, z = z0 + j * cell, river = Math.abs(z - 40 * Math.sin(x / 70)) < 9;
+    top[j * w + i] = 60 + 8 * Math.sin(x / 45) + 6 * Math.cos(z / 38) + (river ? -4 : 0); water[j * w + i] = river ? 1 : 0;
+    if ((i > 60 && i < 70 && j > 30 && j < 44) || (i > 100 && i < 116 && j > 70 && j < 80)) top[j * w + i] = NaN;   /* buildings */
+  }
+  const m = { title: 'Example - not your data', level: 'Levels/EXAMPLE', death: [], kill: [], walk: [], drive: [], stuck: [], spot: [], routes: [], nav: { level: '', x0, z0, cell, w, h, top, water } };
+  for (let i = 0; i < 70; i++) { const a = i * 2.4, r = 30 + (i % 9) * 6; m.death.push({ x: Math.cos(a) * r - 20, z: Math.sin(a) * r * 0.6, n: 1 + (i % 6) }); }
+  for (let i = 0; i < 40; i++) m.kill.push({ x: -120 + i * 5, z: -60 + (i % 7) * 10, n: 1 + (i % 4) });
+  for (let t = 0; t < 1; t += 0.006) m.walk.push({ x: -170 + t * 300, z: -90 + 140 * t * t, n: 3 + Math.round(4 * Math.sin(t * 9) ** 2) });
+  for (let t = 0; t < 1; t += 0.004) m.drive.push({ x: -180 + t * 340, z: 100 - 60 * Math.sin(t * 3.1), n: 2 });
+  m.stuck.push({ x: -40, y: 62, z: -5, hd: 90, seen: 6.2, fix: [3.5, 0.6, 0, 0.4, 0], bad: 0.4, cut: 0 }, { x: 55, y: 64, z: 60, hd: 180, seen: 4.0, fix: [0, 2.8, 0, 0, 0.5], bad: 0.2, cut: 0 }, { x: 110, y: 61, z: -40, hd: 0, seen: 9.0, fix: [0, 0, 0, 0, 0], bad: 7, cut: 1 });
+  m.spot.push({ x: -10, y: 70, z: 30, kills: 6, deaths: 1, uses: 9 }, { x: 80, y: 74, z: -20, kills: 1, deaths: 4, uses: 5 });
+  return m;
+}
+
+/* ---------- loading ---------- */
+/* roads read from the level data by Phoenix 1.6.6: "road <used> <kind> <name>", "x y z" per point, "end" */
+function parseRoads(text) {
+  const out = []; let r = null;
+  for (const raw of text.split(/\r?\n/)) { const line = raw.trim(); if (!line || line[0] === '#') continue;
+    if (/^road\s/i.test(line)) { const f = line.split(/\s+/); r = { used: f[1] === '1', kind: f[2] || '', name: f.slice(3).join(' '), pts: [] }; out.push(r); continue; }
+    if (/^end/i.test(line)) { r = null; continue; }
+    const v = line.split(/\s+/).map(Number); if (r && v.length >= 3 && isFinite(v[0]) && isFinite(v[2])) r.pts.push({ x: v[0], z: v[2] }); }
+  return out.filter(r => r.pts.length >= 2);
+}
+async function loadFiles(list) {
+  const learn = {}, nav = {}, routes = {}, roads = {};
+  for (const f of list) {
+    const name = f.name, stem = name.replace(/\.(learn|nav|routes|roads)$/i, '');
+    if (/\.learn$/i.test(name)) learn[stem] = parseLearn(await f.text());
+    else if (/\.nav$/i.test(name)) nav[stem] = f;
+    else if (/\.routes$/i.test(name)) routes[stem] = parseRoutes(await f.text());
+    else if (/\.roads$/i.test(name)) roads[stem] = parseRoads(await f.text());
+  }
+  const keys = [...new Set([...Object.keys(learn), ...Object.keys(nav)])];   /* (a map with no .learn yet can still get routes) */
+  if (!keys.length) { setEmptyNote('No .learn or .nav files there. Pick the navcache folder inside your Project Phoenix folder.'); return; }
+  maps = {};
+  for (const k of keys) { maps[k] = learn[k] || parseLearn(''); maps[k].key = k; maps[k].navFile = nav[k] || null; maps[k].routes = routes[k] || []; maps[k].roads = roads[k] || []; }
+  document.getElementById('srcBadge').textContent = keys.length + ' map' + (keys.length > 1 ? 's' : '') + ' loaded';
+  renderMapList(); await select(keys.sort((a, b) => totalOf(maps[b]) - totalOf(maps[a]))[0]);
+}
+function setEmptyNote(t) { document.getElementById('list').innerHTML = '<p class="empty">' + t + '</p>'; }
+const totalOf = m => m.death.length + m.walk.length + m.drive.length + m.stuck.length + m.spot.length;
+function displayName(m) { const t = m.title || m.key; const parts = t.split(' - '); return { name: parts[1] || parts[0], level: (parts[1] ? parts[0] : '').replace('Levels/', '') }; }
+function renderMapList() {
+  const ul = document.getElementById('maps'); ul.innerHTML = '';
+  Object.values(maps).sort((a, b) => displayName(a).name.localeCompare(displayName(b).name)).forEach(m => {
+    const li = document.createElement('li'), b = document.createElement('button'), dn = displayName(m);
+    b.innerHTML = '<span class="mname"></span><span class="mmeta"></span>';
+    b.firstChild.textContent = dn.name; b.lastChild.textContent = (dn.level ? dn.level + ' · ' : '') + m.stuck.length + ' stuck · ' + m.death.length + ' death cells';
+    b.onclick = () => select(m.key); b.setAttribute('aria-current', m === cur); li.appendChild(b); ul.appendChild(li); m.btn = b;
+  });
+}
+async function select(key) {
+  cur = maps[key];
+  Object.values(maps).forEach(m => m.btn && m.btn.setAttribute('aria-current', m === cur));
+  if (cur.navFile && !cur.nav) { try { cur.nav = parseNav(await cur.navFile.arrayBuffer()); } catch (e) { cur.nav = null; } }
+  buildTerrain(); fit(); renderSide(); draw();
+}
+
+/* ---------- terrain image ---------- */
+let terrain = null, bounds = null;
+function hexRgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function buildTerrain() {
+  terrain = null; const nv = cur && cur.nav;
+  if (nv) {
+    let lo = Infinity, hi = -Infinity; for (const v of nv.top) if (!isNaN(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const c0 = hexRgb(css('--terrain-lo')), c1 = hexRgb(css('--terrain-hi')), cv = hexRgb(css('--void')), cw = hexRgb(css('--water'));
+    const cnv = document.createElement('canvas'); cnv.width = nv.w; cnv.height = nv.h; const ctx = cnv.getContext('2d'), img = ctx.createImageData(nv.w, nv.h);
+    for (let j = 0; j < nv.h; j++) for (let i = 0; i < nv.w; i++) {
+      const c = j * nv.w + i, v = nv.top[c], o = ((nv.h - 1 - j) * nv.w + i) * 4; let col;
+      if (isNaN(v)) col = cv;
+      else if (nv.water[c]) col = cw;
+      else {
+        const t = (v - lo) / Math.max(1, hi - lo), e = nv.top[c + 1], s = nv.top[c + nv.w];
+        const shade = 1 + ((isNaN(e) ? 0 : e - v) - (isNaN(s) ? 0 : s - v)) * 0.08;
+        col = c0.map((a, k) => Math.max(0, Math.min(255, (a + (c1[k] - a) * t) * shade)));
+      }
+      img.data[o] = col[0]; img.data[o + 1] = col[1]; img.data[o + 2] = col[2]; img.data[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0); terrain = cnv;
+    bounds = { x0: nv.x0 - nv.cell / 2, z0: nv.z0 - nv.cell / 2, x1: nv.x0 + nv.w * nv.cell - nv.cell / 2, z1: nv.z0 + nv.h * nv.cell - nv.cell / 2 };
+  } else {
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (const k of ['death', 'kill', 'walk', 'drive', 'stuck', 'spot']) for (const p of cur[k]) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+    if (!isFinite(x0)) { x0 = -100; z0 = -100; x1 = 100; z1 = 100; }
+    bounds = { x0: x0 - 30, z0: z0 - 30, x1: x1 + 30, z1: z1 + 30 };
+  }
+}
+
+/* ---------- view ---------- */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), stage = document.getElementById('stage');
+function size() { const r = stage.getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = Math.max(1, r.width * d); cv.height = Math.max(1, r.height * d); }
+function fit() { size(); const d = window.devicePixelRatio || 1, W = cv.width / d, H = cv.height / d, bw = bounds.x1 - bounds.x0, bh = bounds.z1 - bounds.z0;
+  view.s = Math.min(W / bw, H / bh) * 0.94; view.ox = W / 2 - (bounds.x0 + bw / 2) * view.s; view.oy = H / 2 + (bounds.z0 + bh / 2) * view.s; }
+const sx = x => x * view.s + view.ox, sy = z => -z * view.s + view.oy;
+const wx = px => (px - view.ox) / view.s, wz = py => -(py - view.oy) / view.s;
+function draw() {
+  if (!cur) return; const d = window.devicePixelRatio || 1, W = cv.width / d, H = cv.height / d;
+  ctx.setTransform(d, 0, 0, d, 0, 0); ctx.fillStyle = css('--void'); ctx.fillRect(0, 0, W, H);
+  if (terrain) { ctx.imageSmoothingEnabled = view.s < 2; ctx.drawImage(terrain, sx(bounds.x0), sy(bounds.z1), (bounds.x1 - bounds.x0) * view.s, (bounds.z1 - bounds.z0) * view.s); }
+  else { ctx.fillStyle = css('--terrain-lo'); ctx.fillRect(sx(bounds.x0), sy(bounds.z1), (bounds.x1 - bounds.x0) * view.s, (bounds.z1 - bounds.z0) * view.s); }
+  const heat = (arr, color, size) => { const max = Math.max(1, ...arr.map(p => p.n)); ctx.fillStyle = color;
+    for (const p of arr) { ctx.globalAlpha = 0.18 + 0.62 * Math.min(1, p.n / max); const s = Math.max(2, size * view.s); ctx.fillRect(sx(p.x) - s / 2, sy(p.z) - s / 2, s, s); } ctx.globalAlpha = 1; };
+  if (layers.death) heat(cur.death, css('--death'), 10);
+  if (layers.kill) heat(cur.kill, css('--kill'), 10);
+  if (layers.walk) heat(cur.walk, css('--walk'), 2.5);
+  if (layers.drive) heat(cur.drive, css('--drive'), 2.5);
+  if (layers.roads && cur.roads) for (const r of cur.roads) {
+    ctx.strokeStyle = css('--road'); ctx.globalAlpha = r.used ? .85 : .35; ctx.lineWidth = r.used ? Math.max(3, 7 * view.s) : 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash(r.used ? [] : [6, 6]);
+    ctx.beginPath(); r.pts.forEach((p, i) => i ? ctx.lineTo(sx(p.x), sy(p.z)) : ctx.moveTo(sx(p.x), sy(p.z))); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }
+  if (layers.routes || drawing) { const all = (cur.routes || []).concat(drawing && editing && editing.length ? [editing] : []);
+    all.forEach((r, ri) => { if (!r.length) return; const live = r === editing;
+      ctx.strokeStyle = css('--route'); ctx.lineWidth = live ? 3 : 4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash(live ? [8, 6] : []);
+      ctx.beginPath(); r.forEach((p, i) => i ? ctx.lineTo(sx(p.x), sy(p.z)) : ctx.moveTo(sx(p.x), sy(p.z))); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = css('--sheet'); r.forEach((p, i) => { ctx.beginPath(); ctx.arc(sx(p.x), sy(p.z), i === 0 ? 5 : 3, 0, 7); ctx.fill(); ctx.stroke(); });
+      if (!live && r.length > 1) { const a = r[r.length - 2], b = r[r.length - 1], ang = Math.atan2(sy(b.z) - sy(a.z), sx(b.x) - sx(a.x));
+        ctx.beginPath(); ctx.moveTo(sx(b.x), sy(b.z)); ctx.lineTo(sx(b.x) - 11 * Math.cos(ang - .45), sy(b.z) - 11 * Math.sin(ang - .45)); ctx.moveTo(sx(b.x), sy(b.z)); ctx.lineTo(sx(b.x) - 11 * Math.cos(ang + .45), sy(b.z) - 11 * Math.sin(ang + .45)); ctx.stroke(); } }); }
+  if (layers.spot) for (const p of cur.spot) { const r = 4 + Math.min(10, p.uses), good = p.kills >= p.deaths;
+    ctx.beginPath(); ctx.arc(sx(p.x), sy(p.z), r, 0, 7); ctx.fillStyle = css('--spot'); ctx.globalAlpha = good ? .9 : .45; ctx.fill(); ctx.globalAlpha = 1; ctx.lineWidth = 1.5; ctx.strokeStyle = css('--sheet'); ctx.stroke(); }
+  if (layers.stuck) for (const p of cur.stuck) { const x = sx(p.x), y = sy(p.z), r = 3 + Math.min(5, p.seen * 0.4);
+    ctx.strokeStyle = css('--stuck'); ctx.lineWidth = 1.5;
+    if (p.cut) { ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = css('--sheet'); ctx.fill(); ctx.stroke();
+      const a = (p.hd || 0) * Math.PI / 180; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.sin(a) * (r + 4), y - Math.cos(a) * (r + 4)); ctx.stroke(); } }
+  if (layers.stuck && cur.vstuck) for (const p of cur.vstuck) { const x = sx(p.x), y = sy(p.z), r = Math.max(5, 3.5 * view.s);
+    ctx.strokeStyle = css('--stuck'); ctx.lineWidth = 2; ctx.strokeRect(x - r, y - r, 2 * r, 2 * r); ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke(); }
+  if (hilite) { ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(sx(hilite.x), sy(hilite.z), 16, 0, 7); ctx.stroke(); }
+  /* scale bar */
+  const nice = [10, 25, 50, 100, 250, 500, 1000]; let m = nice[0]; for (const n of nice) if (n * view.s < 140) m = n;
+  document.getElementById('scale').textContent = '▬ ' + m + ' m  ·  ' + (cur.nav ? cur.nav.w + '×' + cur.nav.h + ' cells' : 'no terrain file');
+}
+let hilite = null;
+
+/* ---------- side panel ---------- */
+function bestFix(p) { let b = -1, v = 0; p.fix.forEach((f, i) => { if (f > v) { v = f; b = i; } }); return b < 0 ? (p.cut ? 'cut from the map' : 'none yet') : FIXES[b]; }
+function renderSide() {
+  const dn = displayName(cur); document.getElementById('sideTitle').textContent = dn.name;
+  const sum = a => a.reduce((s, p) => s + p.n, 0);
+  const st = [['Deaths', Math.round(sum(cur.death))], ['Kills', Math.round(sum(cur.kill))], ['Stuck spots', cur.stuck.length], ['Spots cut', cur.stuck.filter(p => p.cut).length],
+    ['Walked cells', cur.walk.length], ['Driven cells', cur.drive.length], ['Sniper spots', cur.spot.length], ['Known fixes', cur.stuck.filter(p => p.fix.some(f => f > 0.5)).length]];
+  document.getElementById('stats').innerHTML = st.map(s => '<div class="stat"><b>' + s[1] + '</b><span>' + s[0] + '</span></div>').join('');
+  const el = document.getElementById('list'); el.innerHTML = '';
+  const table = (title, head, rows) => { if (!rows.length) return; const h = document.createElement('h3'); h.textContent = title; el.appendChild(h);
+    const t = document.createElement('table'); t.innerHTML = '<thead><tr>' + head.map(x => '<th>' + x + '</th>').join('') + '</tr></thead>'; const tb = document.createElement('tbody');
+    rows.forEach(r => { const tr = document.createElement('tr'); tr.className = 'row'; tr.innerHTML = r.cells.map(c => '<td>' + c + '</td>').join(''); tr.onclick = () => focusOn(r.p); tb.appendChild(tr); });
+    t.appendChild(tb); const wrap = document.createElement('div'); wrap.style.overflowX = 'auto'; wrap.appendChild(t); el.appendChild(wrap); };
+  { const rs = cur.routes || []; if (rs.length) { const h = document.createElement('h3'); h.textContent = 'Drawn vehicle routes'; el.appendChild(h);
+      rs.forEach((r, i) => { const len = r.reduce((s, p, k) => k ? s + Math.hypot(p.x - r[k - 1].x, p.z - r[k - 1].z) : 0, 0), row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:3px 12px;font:12px var(--f-mono)';
+        row.innerHTML = '<span style="flex:1">route ' + (i + 1) + ' · ' + r.length + ' pts · ' + Math.round(len) + ' m</span>';
+        const go = document.createElement('button'); go.className = 'btn'; go.textContent = 'Show'; go.onclick = () => focusOn(r[0]);
+        const del = document.createElement('button'); del.className = 'btn'; del.textContent = 'Delete'; del.onclick = () => { cur.routes.splice(i, 1); dirty = true; renderSide(); draw(); note('Route deleted - Save routes to keep the change.'); };
+        row.append(go, del); el.appendChild(row); }); } }
+  table('Where vehicles got stuck', ['x, z'], (cur.vstuck || []).slice(0, 25).map(p => ({ p, cells: [Math.round(p.x) + ', ' + Math.round(p.z)] })));
+  table('Where bots get stuck', ['seen', 'fix', 'x, z'], [...cur.stuck].sort((a, b) => b.seen - a.seen).slice(0, 25).map(p => ({ p, cells: [p.seen.toFixed(1), bestFix(p), Math.round(p.x) + ', ' + Math.round(p.z)] })));
+  table('Deadliest ground', ['deaths', 'x, z'], [...cur.death].sort((a, b) => b.n - a.n).slice(0, 12).map(p => ({ p, cells: [p.n.toFixed(1), Math.round(p.x) + ', ' + Math.round(p.z)] })));
+  table('Sniper and window spots', ['K', 'D', 'uses', 'x, z'], [...cur.spot].sort((a, b) => (b.kills - b.deaths) - (a.kills - a.deaths)).slice(0, 12).map(p => ({ p, cells: [p.kills.toFixed(1), p.deaths.toFixed(1), p.uses.toFixed(1), Math.round(p.x) + ', ' + Math.round(p.z)] })));
+  if (!el.children.length) setEmptyNote('Nothing learned on this map yet. Play a round with bots and it fills in - or draw a vehicle route.');
+}
+function focusOn(p) { hilite = p; const d = window.devicePixelRatio || 1; view.s = Math.max(view.s, 3); view.ox = cv.width / d / 2 - p.x * view.s; view.oy = cv.height / d / 2 + p.z * view.s; draw(); }
+
+/* ---------- legend ---------- */
+const lg = document.getElementById('legend');
+LAYERS_DEF.forEach(l => { const lab = document.createElement('label'), cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.id = 'ly-' + l.key; cb.checked = !!layers[l.key];
+  cb.onchange = () => { layers[l.key] = cb.checked; try { localStorage.setItem('phx-layers', JSON.stringify(layers)); } catch (e) {} draw(); };
+  const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = 'var(' + l.color + ')';
+  lab.append(cb, sw, document.createTextNode(l.label)); lg.appendChild(lab); });
+
+/* ---------- interaction ---------- */
+let dragging = null;
+cv.addEventListener('pointerdown', e => { dragging = { x: e.clientX, y: e.clientY, ox: view.ox, oy: view.oy, moved: 0 }; cv.setPointerCapture(e.pointerId); if (!drawing) cv.classList.add('drag'); });
+cv.addEventListener('pointerup', e => {
+  if (dragging && drawing && dragging.moved < 5 && cur) { const r = cv.getBoundingClientRect(); editing.push({ x: wx(e.clientX - r.left), z: wz(e.clientY - r.top) });
+    note(editing.length < 2 ? 'Click the next point along the road. Drag to pan, scroll to zoom.' : editing.length + ' points - keep clicking, then Finish route (or Enter).'); draw(); }
+  dragging = null; cv.classList.remove('drag'); });
+cv.addEventListener('pointermove', e => {
+  const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  if (dragging) { dragging.moved = Math.max(dragging.moved, Math.hypot(e.clientX - dragging.x, e.clientY - dragging.y)); if (dragging.moved >= 5) { view.ox = dragging.ox + e.clientX - dragging.x; view.oy = dragging.oy + e.clientY - dragging.y; draw(); } }
+  showTip(px, py);
+});
+cv.addEventListener('pointerleave', () => { document.getElementById('tip').hidden = true; });
+cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top; zoomAt(px, py, e.deltaY < 0 ? 1.2 : 1 / 1.2); }, { passive: false });
+function zoomAt(px, py, f) { const x = wx(px), z = wz(py); view.s *= f; view.ox = px - x * view.s; view.oy = py + z * view.s; draw(); }
+document.getElementById('zin').onclick = () => { const d = window.devicePixelRatio || 1; zoomAt(cv.width / d / 2, cv.height / d / 2, 1.4); };
+document.getElementById('zout').onclick = () => { const d = window.devicePixelRatio || 1; zoomAt(cv.width / d / 2, cv.height / d / 2, 1 / 1.4); };
+document.getElementById('zfit').onclick = () => { hilite = null; fit(); draw(); };
+function showTip(px, py) {
+  const x = wx(px), z = wz(py), tip = document.getElementById('tip'); let best = null, bd = 14 / view.s, text = '';
+  const near = (arr, fmt, layer) => { if (!layers[layer]) return; for (const p of arr) { const d = Math.hypot(p.x - x, p.z - z); if (d < bd) { bd = d; best = p; text = fmt(p); } } };
+  near(cur.death, p => '<b>Deaths</b> ' + p.n.toFixed(1) + ' in this 10 m cell', 'death');
+  near(cur.kill, p => '<b>Kills</b> ' + p.n.toFixed(1) + ' in this 10 m cell', 'kill');
+  near(cur.walk, p => '<b>Human walked here</b> ' + p.n + '×<br>bots prefer this route', 'walk');
+  near(cur.drive, p => '<b>Human drove here</b> ' + p.n + '×<br>drivable for bot drivers', 'drive');
+  near(cur.vstuck || [], p => '<b>Vehicles got stuck here</b><br>cut from the drive map every round', 'stuck');
+  near(cur.spot, p => '<b>Overwatch spot</b><br>' + p.kills.toFixed(1) + ' kills · ' + p.deaths.toFixed(1) + ' deaths · used ' + p.uses.toFixed(1) + '×', 'spot');
+  near(cur.stuck, p => '<b>Stuck spot</b> seen ' + p.seen.toFixed(1) + '×, heading ' + Math.round(p.hd) + '°<br>' + (p.cut ? 'nobody gets through: cut from the map' : 'works: ' + FIXES.map((f, i) => p.fix[i] > 0.05 ? f + ' ' + p.fix[i].toFixed(1) : '').filter(Boolean).join(', ') || 'nothing yet'), 'stuck');
+  let h = '';
+  if (cur.nav) { const i = Math.round((x - cur.nav.x0) / cur.nav.cell), j = Math.round((z - cur.nav.z0) / cur.nav.cell); if (i >= 0 && j >= 0 && i < cur.nav.w && j < cur.nav.h) { const v = cur.nav.top[j * cur.nav.w + i]; h = isNaN(v) ? ' · no floor' : ' · y ' + v.toFixed(1); } }
+  tip.innerHTML = (text ? text + '<br>' : '') + '<span style="color:var(--ink-2)">' + Math.round(x) + ', ' + Math.round(z) + h + '</span>';
+  tip.hidden = false; const r = stage.getBoundingClientRect(); tip.style.left = Math.min(px + 14, r.width - 270) + 'px'; tip.style.top = Math.max(8, py - 10) + 'px';
+}
+/* ---------- route drawing ---------- */
+const note = t => { const n = document.getElementById('rNote'); n.textContent = t; n.hidden = !t; };
+const btnDraw = document.getElementById('rDraw');
+function finishRoute() { if (editing.length >= 2) { cur.routes = cur.routes || []; cur.routes.push(editing); dirty = true; note('Route added - Save routes to give it to the bots.'); renderSide(); }
+  else if (editing.length) note('A route needs at least 2 points.'); editing = []; draw(); }
+btnDraw.onclick = () => { if (!cur) return; drawing = !drawing; btnDraw.setAttribute('aria-pressed', drawing); cv.classList.toggle('drawing', drawing);
+  if (drawing) { editing = []; layers.routes = true; document.getElementById('ly-routes').checked = true; note('Click along the road the vehicles should take, from start to end.'); } else { finishRoute(); } draw(); };
+document.getElementById('rUndo').onclick = () => { if (editing.length) { editing.pop(); draw(); } else if (cur && cur.routes && cur.routes.length && confirm('Remove the last drawn route?')) { cur.routes.pop(); dirty = true; renderSide(); draw(); } };
+document.getElementById('rEnd').onclick = () => finishRoute();
+window.addEventListener('keydown', e => { if (!drawing) return; if (e.key === 'Enter') finishRoute(); else if (e.key === 'Escape') { editing = []; draw(); } else if (e.key === 'Backspace' && editing.length) { e.preventDefault(); editing.pop(); draw(); } });
+document.getElementById('rSave').onclick = async () => {
+  if (!cur) return; if (editing.length >= 2) finishRoute();
+  const text = routesText(cur), name = cur.key + '.routes';
+  try {
+    if (window.showSaveFilePicker) { const h = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'Phoenix routes', accept: { 'text/plain': ['.routes'] } }] });
+      const w = await h.createWritable(); await w.write(text); await w.close(); dirty = false; note('Saved ' + h.name + ' - bots use it within 10 s if the server is on this map.'); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  dirty = false; note('Downloaded ' + name + ' - move it into your navcache folder.');
+};
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+document.getElementById('folder').onchange = e => loadFiles([...e.target.files]);
+document.getElementById('files').onchange = e => loadFiles([...e.target.files]);
+const app = document.getElementById('app');
+app.addEventListener('dragover', e => { e.preventDefault(); app.classList.add('drop'); });
+app.addEventListener('dragleave', () => app.classList.remove('drop'));
+app.addEventListener('drop', e => { e.preventDefault(); app.classList.remove('drop'); loadFiles([...e.dataTransfer.files]); });
+window.addEventListener('resize', () => { if (cur) { size(); fit(); draw(); } });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { buildTerrain(); draw(); });
+new MutationObserver(() => { buildTerrain(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+/* start with the example */
+const ex = exampleMap(); ex.key = 'example'; maps = { example: ex }; renderMapList(); cur = ex; buildTerrain(); requestAnimationFrame(() => { fit(); renderSide(); draw(); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# build outputs
+bin/
+harness/phoenix_harness
+/PhoenixLauncher.exe
+*.o
+*.obj
+# generated navigation caches (per-map, machine-specific)
+navcache/
+*.dscan
