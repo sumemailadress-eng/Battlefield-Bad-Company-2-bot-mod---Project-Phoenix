@@ -98,6 +98,8 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
    folder. That zip has `PhoenixLauncher.exe`, `bin\PhoenixBC2.dll` and `bin\PhoenixAttach.exe` ready to run.
    **Code → Download ZIP** and the "Source code" archives are the source only - no programs; build them yourself
    (below) or use the release zip.
+   The release zip includes a `navcache` folder with the maps already surveyed and what the bots learned on them, so
+   the first round on those maps starts straight away. It is merged into your `PhoenixNavcache` when the bots attach.
    **Updating from an older version?** Nothing to copy. Since 1.6.9 the maps already surveyed and everything the bots
    learned are kept in one folder next to your server, `<server folder>\PhoenixNavcache` (for example
    `D:\BF-Portable\Battlefield_bc2_Server\PhoenixNavcache`), and every install uses it. The first time a new install
