@@ -168,6 +168,10 @@ QUIET=1 RUSH=1 HOUSE=1 ./harness/phoenix_harness 400
 Attach the `reports\<date-time>\runtime.log` from the session. Every bot decision that matters is logged there: routes,
 vehicles, stuck spots, Rush objectives and road detection.
 
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE). You may use, change and share Phoenix for any noncommercial purpose.
+
 ## Credits
 
 The navigation grid and parts of the bot behaviour are adapted from the author's Battlefield 3 bot mod (AltBotMod /
