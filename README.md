@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.6.7** (release 1.1). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.6.8** (release 1.2). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -19,7 +19,8 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 ### Game modes
 - **Conquest**: a team director gives every bot a job. Bots attack the nearest flags in groups, defend, guard and retake
-  lost flags. They stay in the capture zone until the flag falls, then move on.
+  lost flags. They stay in the capture zone until the flag falls, then move on (1.6.8: a vehicle with no route out of a
+  freshly taken flag no longer holds its crew there - bots walk on to the next flag).
 - **Rush**: attackers arm M-COMs and defenders defuse them. Phoenix finds the M-COM entities in server memory, works out
   which stage is active, and plans routes **into buildings and up stairs** to M-COMs placed indoors. It surveys each
   building, finds doorways and doors, and knifes doors open.
@@ -52,7 +53,9 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 - Bots drive ground vehicles and boats, fly helicopters (with a geofence so they don't leave the map) and use
   stationary weapons. Each vehicle type's controls and turret are calibrated automatically the first time a bot uses it.
 - **Road detection** (1.6.6): Phoenix reads the level's own road data (road objects and terrain road splines) from
-  server memory. It checks every road line against the ground and makes the road cells the preferred lanes.
+  server memory. It checks every road line against the ground and makes the road cells the preferred lanes. Since
+  1.6.8 routes keep to them: no straight-line short cut across the fields beyond the last 30 m, and a route leaves the
+  road only where the planner turned off it.
 - **Vehicle scan** (1.6.5): a one-time ray scan per map that finds kerbs, road dividers, steps and low walls a wheel
   can't cross. The planner never routes across them.
 - **Routing** (1.6.6): routes always start and end in the same connected drivable area. If a flag is off the road, the
@@ -61,6 +64,7 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   slow down for bends.
 - **Hazard probes** (1.6.6): rays ahead of the bumper detect barrels, road blockers, stairs, steps and drops. The spot is
   cut from the map and the vehicle re-routes before it hits anything.
+- **Crews** (1.6.8): when the driver gets out, a passenger moves over and drives on, or the crew gets out at once.
 - When a vehicle is boxed in, it backs out the way it came. Spots where vehicles got stuck are remembered across rounds.
 - **Your driving teaches them**: cells you drive are preferred routes. You can also **draw routes** for vehicles in the
   learning map.
@@ -86,7 +90,11 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 ## Install
 
-1. Download the latest release zip and extract it anywhere, for example next to your BF-Portable folder.
+1. Download the latest release zip from the [Releases page](https://github.com/sumemailadress-eng/Battlefield-Bad-Company-2-bot-mod---Project-Phoenix/releases)
+   (the `Project-Phoenix-BC2-...zip` under **Assets**) and extract it anywhere, for example next to your BF-Portable
+   folder. That zip has `PhoenixLauncher.exe`, `bin\PhoenixBC2.dll` and `bin\PhoenixAttach.exe` ready to run.
+   **Code → Download ZIP** and the "Source code" archives are the source only - no programs; build them yourself
+   (below) or use the release zip.
 2. If you want the bots to show up on the scoreboard with names, run `backend\Add-Bot-Accounts.bat` once with MySQL
    running. It adds one backend account per bot.
 3. Open `phoenix.ini` and set the number of bots and the difficulty, or set them in the launcher.
@@ -147,6 +155,12 @@ Phoenix is plain C, built with a 32-bit MinGW-w64 toolchain (gcc or clang), eith
 ```sh
 ./build.sh          # bin/PhoenixBC2.dll, bin/PhoenixAttach.exe, PhoenixLauncher.exe, harness/phoenix_harness
 CC=i686-w64-mingw32-gcc ./build.sh
+```
+
+Without MinGW, on Windows with LLVM clang and the Visual Studio 2022 Build Tools (static runtime, no extra DLLs):
+
+```sh
+./build-msvc.sh     # bin/PhoenixBC2.dll (set CLANG, VC, SDK, SDKVER if your versions differ)
 ```
 
 | Folder | Contents |
