@@ -71,7 +71,7 @@ typedef struct Bot {
     /* 1.5: vehicle speed along the hull, escape manoeuvres, route requests from a fixed start, emplacements, Rush */
     float vPrev[3], vFwd, vFwdPrev, escHeading, pathFrom[3]; double vPrevAt, escUntil, escDriveUntil, thrOnSince, pathFailLogAt, emplUntil, emplNoTgtAt, armUntil; uint32_t vPrevVeh, repairVeh; double armStart, armBlockUntil, fenceLogAt, doorKnifeAt; float vTrail[8][3]; int vTrailN; uint32_t vTrailVeh; const float *inChain; int inIdx, inOn, inLogged; double inDbgAt, inIdxAt, inBanUntil; double swimSince, wpnCheckAt, wpnOffSince, armBestAt; float armBest; int escTries, rockets, mcom, armTries, newLife, boatLand; double repairCheckAt, repairUntil, boatAgroundAt;
     /* 1.6.6 */
-    int stopKilled, pathPartial; double stopExitAt; double noRouteSince, hazAt, hazCutAt, routeWaitSince; float hazSpot[3], pathGap;
+    int stopKilled, pathPartial; double stopExitAt, rejoinAt, rejoinPlanAt; double noRouteSince, hazAt, hazCutAt, routeWaitSince; float hazSpot[3], pathGap;
     double heldUntil[BC2_EiaUndefined];
     float levels[BC2_EiaUndefined];
     int pulse[BC2_EiaUndefined];
@@ -879,6 +879,15 @@ static int path_nearest(const float *path, int n, const float *pos)
     }
     return best;
 }
+/* 1.6.7: nothing solid between a and b at knee and chest height (a wall, a building - not the floor or a step) */
+static int line_clear(const float *a, const float *b)
+{
+    float h[3], n[3], d = dist2d(a, b);
+    for (int k = 0; k < 2; k++) { float up = k ? 1.4f : 0.7f;
+        float p0[3] = {a[0], a[1] + up, a[2]}, p1[3] = {b[0], b[1] + up, b[2]};
+        if (!eng_ray(p0, p1, h, n) || fabsf(n[1]) > 0.6f || dist2d(a, h) > d - 0.6f) return 1; }
+    return 0;
+}
 static void follow(Bot *b, double now, const float *dest, float *moveHeading, int *moving, float *remaining, float *wayDist)
 {
     *moving = 0; *remaining = 0; *wayDist = 0;
@@ -940,8 +949,33 @@ static void follow(Bot *b, double now, const float *dest, float *moveHeading, in
             if (dist2d(b->pos, ip) > 1.0f) { dest = ip; dGoal = dist2d(b->pos, dest); memcpy(target, dest, 12); }
         } else b->inLogged = 0;
     }
+    /* 1.6.7: stay on the route. A fight (planted feet, strafing, a knife rush), a side-step or a push can leave a bot
+       metres off its route; 1.6.6 then walked straight at its old waypoint, through whatever was in between. Twice a
+       second: if a later waypoint is closer and in clear sight, skip to it; if the bot is more than 5 m off the
+       current leg, or the way to its waypoint is walled off, plan again from where it stands (every 3 s at most). */
+    if (navg_ready() && dGoal > 1.5f && b->pathLen && !b->pathPending && now >= b->rejoinAt && now >= b->detourUntil) {
+        b->rejoinAt = now + 0.5;
+        if (b->pathIdx >= b->pathLen) b->pathIdx = b->pathLen - 1;
+        for (int k = b->pathIdx + 1; k < b->pathLen && k <= b->pathIdx + 6; k++)
+            if (dist2d(b->pos, &b->path[k * 3]) + 1.0f < dist2d(b->pos, &b->path[b->pathIdx * 3]) && fabsf(b->path[k * 3 + 1] - b->pos[1]) < 2.0f && line_clear(b->pos, &b->path[k * 3])) b->pathIdx = k;
+        const float *a = b->pathIdx > 0 ? &b->path[(b->pathIdx - 1) * 3] : b->pathFrom, *c = &b->path[b->pathIdx * 3];
+        float vx = c[0] - a[0], vz = c[2] - a[2], L2 = vx * vx + vz * vz, u = L2 > 1e-4f ? ((b->pos[0] - a[0]) * vx + (b->pos[2] - a[2]) * vz) / L2 : 1;
+        u = u < 0 ? 0 : u > 1 ? 1 : u;
+        float off = hypotf(b->pos[0] - (a[0] + vx * u), b->pos[2] - (a[2] + vz * u));
+        int walled = off > 1.5f && fabsf(c[1] - b->pos[1]) < 1.5f && !line_clear(b->pos, c);
+        if ((off > 5.0f || walled) && now - b->rejoinPlanAt > 3.0) {
+            b->rejoinPlanAt = now; b->pathAt = now - 100; memcpy(b->pathFrom, b->pos, 12);   /* forces a new route below */
+            static int rl; if (rl++ < 30 || g_cfg.verbose) rt_log("move: %s is %.0f m off its route%s - a new route from here", b->name, off, walled ? " and walled off from it" : "");
+        }
+    }
+    /* 1.6.7: routes at every distance. 1.6.6 only planned when the goal was over 6 m away and walked the last 6 m
+       straight - into the wall between it and a flag point or an M-COM. Now a goal 1.5-6 m away is walked straight
+       only when that straight line IS the route (clear at knee and chest height, no floor change); anything else gets a
+       planned route, however close. */
+    int shortClear = dGoal <= 6 && fabsf(dest[1] - b->pos[1]) < 1.0f && line_clear(b->pos, dest);
+    if (shortClear && b->pathLen && dist2d(b->pathGoal, dest) < 1.0f) b->pathLen = 0;   /* in sight now: no detour via old waypoints */
     /* path refresh (a moving destination - a squad leader, a human - is re-planned at most every 2 s) */
-    if (navg_ready() && dGoal > 6) {
+    if (navg_ready() && dGoal > 1.5f && !shortClear) {
         float drift = dist2d(b->pathGoal, dest);
         int needNew = !b->pathLen || (drift > 3 && (drift > 12 || now - b->pathAt > 2)) || now - b->pathAt > 25;
         if (needNew || b->pathPending) {

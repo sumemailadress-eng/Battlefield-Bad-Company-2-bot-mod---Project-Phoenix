@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.6.6**. The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.6.7** (release 1.1). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -34,6 +34,9 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 - Equipment: medics revive and drop med kits, assault drops ammo, engineers repair friendly vehicles (they only pull out
   the repair tool to repair) and fire launchers at armour and helicopters, and recon calls mortar strikes.
 - Fireteams and real squads: bots move and fight in small groups.
+- **Always on a route**: soldiers plan routes to every goal (a flag, an M-COM, a teammate) at any distance unless the
+  straight line is already clear, and get back onto their route after a fight, a side-step or a push - re-planning
+  from where they stand when the old route is out of reach.
 - Recovery when stuck: jump, crouch, knife through fences and doors, side-step or detour. A bot that is truly pinned is
   killed cleanly and respawns.
 

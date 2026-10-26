@@ -23,6 +23,12 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.6.7 - always on a route
+
+- **Back on the route after a fight.** Fighting (planted feet, strafing, a knife rush), a side-step or a push can leave a soldier metres off its route; 1.6.6 then walked straight at its old waypoint through whatever stood in between. Twice a second each bot now checks its route: a later waypoint that is closer and in clear sight is taken; more than 5 m off the current leg, or walled off from the next waypoint, and it plans a new route from where it stands ("move: Joe is 7 m off its route - a new route from here").
+- **Routes at every distance.** 1.6.6 only planned routes to goals more than 6 m away and walked the last 6 m straight - into the wall between it and a flag point or an M-COM. Now a goal 1.5-6 m away is walked straight only when that straight line is the route (clear at knee and chest height, same floor); anything else gets a planned route, however close. In the test house the upstairs M-COM was armed in half the time.
+- Vehicles already re-join their route line (1.6.6): a driver off the line steers back to it, and plans again when far off - also after a tank turns its hull onto a target.
+
 ## What changed in 1.6.6 - roads, vehicles that stay on them, no more ghost bots, the Atacama crash
 
 **Ghost bots and soldiers floating into the sky - fixed.** A bot pinned in place (wedged, or standing on air) was "redeployed" with the engine's leaveGame, which only *detaches* a living soldier from its player. The soldier stayed in the world with nobody controlling it: standing still, no AI, hit reactions but no damage - and if it was detached in the middle of the little hop that frees pinned bots, it kept drifting upwards. One Panama Canal round left 109 of them. Phoenix now kills the soldier with the engine's own suicide (what the console's suicide does) and the bot respawns as the same player. Stop-Bots does the same: living bot soldiers are killed first (crews are taken out of their vehicles first), then the players are removed - no soldiers left behind.
