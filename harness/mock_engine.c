@@ -245,6 +245,10 @@ uint32_t eng_vehicle_occupant(uint32_t v, int seat) { MVeh *m = mveh_of(v); retu
 int eng_vehicle_seat_allowed(uint32_t v, uint32_t p, int seat) { (void)p; MVeh *m = mveh_of(v); return m && seat >= 0 && seat < 4 && !m->occ[seat]; }
 uint32_t eng_player_controlled(uint32_t p) { uint32_t c = R(p + PL_CONTROLLED); return c ? c : R(p + PL_SOLDIER); }
 int sim_vehicle_enters, sim_vehicle_exits; float sim_vehicle_km, sim_heli_max_agl;
+float sim_ground_km, sim_road_km;
+/* 1.6.9: distance to the ROADS scenario's road lines (the road object along z=-4 from x=320 to 0, the decal from (-330,10) to (-50,80)) */
+static float seg_dist(float px, float pz, float ax, float az, float bx, float bz) { float vx = bx - ax, vz = bz - az, L2 = vx * vx + vz * vz, t = L2 > 0 ? ((px - ax) * vx + (pz - az) * vz) / L2 : 0; t = t < 0 ? 0 : t > 1 ? 1 : t; return hypotf(px - ax - vx * t, pz - az - vz * t); }
+static float mock_road_dist(float x, float z) { if (!getenv("ROADS")) return 1e9f; float d = seg_dist(x, z, 320, -4, 0, -4); for (int i = 0; i < 7; i++) d = fminf(d, seg_dist(x, z, -330 + i * 40.0f, 10 + i * 10.0f, -330 + (i + 1) * 40.0f, 10 + (i + 1) * 10.0f)); return d; }
 int sim_rocket_soldier, sim_vf[3], sim_vh[3], sim_veh_fire, sim_veh_hits, sim_veh_kills, sim_rockets, sim_rocket_hits;
 int eng_enter_vehicle(uint32_t p, uint32_t v, int seat)
 {
@@ -448,6 +452,7 @@ static void vehicles_step(float dt)
             else if (fabsf(ground_at(nx, m[13] + 2, nz) - m[13]) > 0.45f) { v->speed = 0; nx = x; nz = z; }
         }
         sim_vehicle_km += hypotf(nx - x, nz - z) / 1000.0f;
+        { float dk = hypotf(nx - x, nz - z) / 1000.0f; sim_ground_km += dk; if (mock_road_dist(nx, nz) < 6.0f) sim_road_km += dk; }   /* 1.6.9: how much of the driving is on the level's roads */
         float gy = ground_at(nx, m[13] + 2, nz);
         m[0] = cosf(h); m[2] = -sinf(h); m[8] = sinf(h); m[10] = cosf(h); m[12] = nx; m[13] = gy; m[14] = nz;
         memcpy(A + (root - FA0), m, 64);
@@ -786,6 +791,7 @@ void mock_report(void)
     printf("flags:");
     for (int c = 0; c < cpN; c++) printf(" %d", (int)R(cps[c].e + CP_OWNER));
     printf("  vehicles: enters %d exits %d, %.2f km driven, helicopter max height %.0f m\n", sim_vehicle_enters, sim_vehicle_exits, sim_vehicle_km, sim_heli_max_agl);
+    if (getenv("ROADS")) printf("  ROADUSE ground vehicles drove %.2f km, %.2f km of it (%.0f%%) within 6 m of a road line\n", sim_ground_km, sim_road_km, sim_ground_km > 0 ? 100 * sim_road_km / sim_ground_km : 0);
     printf("  vehicle guns: firing %.1f s, on target %.1f s; rockets %d (%d hit vehicles, %d killed soldiers), vehicles destroyed %d [driver %d/%d pilot %d/%d gunner %d/%d]\n", sim_veh_fire / 30.0f, sim_veh_hits / 30.0f, sim_rockets, sim_rocket_hits, sim_rocket_soldier, sim_veh_kills, sim_vh[0], sim_vf[0], sim_vh[1], sim_vf[1], sim_vh[2], sim_vf[2]);
     printf("  GHOSTS %d living soldier(s) without a player, %d suicide(s)\n", mock_ghosts(), sim_suicides);
     printf("  human deaths %d, kills t1 %d t2 %d, deaths t1 %d t2 %d, captures t1 %d t2 %d, shots %d, rays %u, roster %d\n",

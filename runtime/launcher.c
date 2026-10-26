@@ -546,7 +546,11 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         case ID_LAN: open_lan(); break;
         case ID_VIEWER: { WCHAR p[MAX_PATH]; swprintf(p, MAX_PATH, L"%ls\\LearnViewer.html", g_dir);
             if (GetFileAttributesW(p) == INVALID_FILE_ATTRIBUTES) status(L"LearnViewer.html is not next to the launcher.");
-            else { ShellExecuteW(h, L"open", p, NULL, NULL, SW_SHOWNORMAL); status(L"The learning map opened in your browser: click Open navcache folder and pick %ls\\navcache.", g_dir); } break; }
+            else { ShellExecuteW(h, L"open", p, NULL, NULL, SW_SHOWNORMAL);
+                /* 1.6.9: the shared navcache next to the server (or NavcacheDir= in phoenix.ini) */
+                WCHAR nd[MAX_PATH]; ini_get(g_phoenixIni, L"Behaviour", L"NavcacheDir", L"", nd, MAX_PATH);
+                if (!nd[0]) { get_text(ID_SRV, nd, MAX_PATH); WCHAR *sl = wcsrchr(nd, L'\\'); if (sl) { *sl = 0; wcsncat(nd, L"\\PhoenixNavcache", MAX_PATH - wcslen(nd) - 1); } else swprintf(nd, MAX_PATH, L"%ls\\navcache", g_dir); }
+                status(L"The learning map opened in your browser: click Open navcache folder and pick %ls", nd); } break; }
         case ID_FINDXAMPP: find_xampp(); break;
         case ID_SVC: case ID_SVC + 10: case ID_SVC + 20: break;
         case ID_STARTSRV: save(); start_server(); break;

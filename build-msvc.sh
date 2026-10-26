@@ -15,3 +15,8 @@ mkdir -p bin
   runtime/roads.c runtime/win_common.c src/bc2_observe.c src/bc2_tick_hook.c src/nav.c -lbcrypt -luser32 -lkernel32 -ladvapi32 -o bin/PhoenixBC2.dll
 rm -f bin/PhoenixBC2.lib bin/PhoenixBC2.exp
 echo "built bin/PhoenixBC2.dll"
+# the launcher (Windows GUI); copy it next to Start-Bots.bat
+"$CLANG" --target=i686-pc-windows-msvc -fms-runtime-lib=static -O2 -std=gnu11 -D_WIN32_WINNT=0x0601 -D_CRT_SECURE_NO_WARNINGS -DUNICODE -D_UNICODE \
+  -fuse-ld=lld -Wl,/SUBSYSTEM:WINDOWS -Wl,/ENTRY:wWinMainCRTStartup runtime/launcher.c \
+  -lcomdlg32 -lshell32 -lws2_32 -ladvapi32 -luser32 -lgdi32 -lkernel32 -o bin/PhoenixLauncher.exe
+echo "built bin/PhoenixLauncher.exe"

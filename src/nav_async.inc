@@ -2,6 +2,14 @@
 // Searches and shortcut checks resume next tick; unfinished searches never
 // produce a guessed route or make a destination look unreachable.
 #define NAV_PATH_OWNERS 128
+#include <stdlib.h>
+#ifdef PHX_HARNESS
+#define VEH_HW (getenv("VEH_HW")?(float)atof(getenv("VEH_HW")):0.4f)
+#define VEH_CLOSED (getenv("VEH_CLOSED")?atoi(getenv("VEH_CLOSED")):40000)
+#else
+#define VEH_HW 0.4f     /* 1.6.9: was 0.7 - above the cost of open ground (0.5) and roads (0.35), so the search ran greedily at the flag and roads barely counted */
+#define VEH_CLOSED 40000   /* 1.6.9: was 16000 - the less greedy search needs more room on a big map */
+#endif
 typedef struct NavRequest {
     const NavGrid *grid;
     unsigned serial;
@@ -12,6 +20,7 @@ typedef struct NavRequest {
     float bestDistance;
     int scanNode,scanDirection,scanPhysics;
     int *nodes, len, anchor, next, trial;
+    float *ncost;   // 1.6.9: the search's cost at each route node (vehicle string pulling compares against it)
     double lastUsed;
     double startedAt;
     float source[3], target[3], prefixPos[3], fromPos[3];
@@ -87,6 +96,7 @@ static int request_segment_clear(const NavRequest *q,const float *a,const float 
 static void request_clear(int owner)
 {
     nav_release(g_requests[owner].nodes);
+    nav_release(g_requests[owner].ncost);
     memset(&g_requests[owner],0,sizeof g_requests[owner]);
     if(g_activeRequest==owner)g_activeRequest=-1;
 }
@@ -106,7 +116,7 @@ static void request_finish(NavRequest *q,int success,const char *reason)
 {
     if(!success)q->n=0;
     snprintf(q->error,sizeof q->error,"%s after %d nodes",reason,q->closed);
-    nav_release(q->nodes);q->nodes=NULL;q->state=3;q->lastUsed=now_ms();
+    nav_release(q->nodes);q->nodes=NULL;nav_release(q->ncost);q->ncost=NULL;q->state=3;q->lastUsed=now_ms();
 }
 static int request_begin(NavRequest *q)
 {
@@ -196,6 +206,8 @@ static void request_prepare_output(NavRequest *q)
     if(!q->nodes){request_finish(q,0,"navigation allocation failed");return;}
     int k=q->len;
     for(int c=q->goal;c>=0;c=g_searchParent[c])q->nodes[--k]=c;
+    nav_release(q->ncost);q->ncost=q->mask?nav_alloc((size_t)q->len*sizeof *q->ncost):NULL;
+    if(q->ncost)for(int i=0;i<q->len;i++)q->ncost[i]=g_searchCost[q->nodes[i]];
     q->anchor=-1;q->trial=-1;q->n=0;q->phase=2;
     memcpy(q->fromPos,q->source,12);
     if(isnan(q->fromPos[1]))q->fromPos[1]=q->grid->height[q->start];
@@ -228,7 +240,7 @@ static void request_advance(NavRequest *q,double deadline)
     // roads cost 0.5. Traversed costs still prefer roads; every route is checked.
     // AltBotMod V12: soldiers 1.2 with roads (V11 0.9): on Riverside's grid the same routes (lengths within 4%) for
     // about half the nodes expanded - the live planner managed ~1 route a second for 59 bots, so bots waited in a queue.
-    float hw=q->mask?0.7f:roads?1.2f:1.5f;   // 1.6.1 vehicles 0.7 (was 1.5: greedy - beelines over open ground beat the road, costs barely counted)
+    float hw=q->mask?VEH_HW:roads?1.2f:1.5f;   // 1.6.1 vehicles 0.7 (was 1.5: greedy - beelines over open ground beat the road, costs barely counted)
     while(q->phase==1 && (g_searchHeapN || q->scanNode>=0)){
         int cur=q->scanNode;
         if(cur<0){
@@ -244,7 +256,7 @@ static void request_advance(NavRequest *q,double deadline)
             if(distance<q->bestDistance){q->bestDistance=distance;q->bestNode=cur;}
             // A useful, checked continuation beats monopolizing the queue with
             // a 100k-node failed vehicle search while infantry waits at base.
-            if(q->closed>=16000){
+            if(q->closed>=VEH_CLOSED){
                 node_pos(g,q->bestNode,p);
                 float original=hypotf(q->source[0]-q->target[0],q->source[2]-q->target[2]);
                 if(original-q->bestDistance>12 && hypotf(p[0]-q->source[0],p[2]-q->source[2])>12){
@@ -306,7 +318,11 @@ static void request_advance(NavRequest *q,double deadline)
         while(link<0 && q->trial>q->next){
             if(now_ms()>=deadline)return;
             int j=q->trial--;
-            if(q->anchor>=0 && !straight_walkable(g,q->nodes[q->anchor],q->nodes[j]))continue;
+            /* 1.6.9: vehicles - the first leg too (1.6.8 checked only the ray from the vehicle, so it was pulled up to 80 m
+               across open ground), and never dearer than the planned route it replaces (roads stay roads) */
+            int from=q->anchor>=0?q->anchor:0;
+            if((q->anchor>=0 || (q->mask && !q->longLegs)) && !straight_walkable(g,q->nodes[from],q->nodes[j]))continue;
+            if(q->ncost && !q->longLegs && line_drive_cost(g,q->nodes[from],q->nodes[j])>(q->ncost[j]-q->ncost[from])*1.08f+1.0f)continue;
             float to[3];node_pos(g,q->nodes[j],to);
             if(q->ray && !request_segment_clear(q,q->fromPos,to))continue;
             q->next=j;break;
@@ -333,7 +349,7 @@ static void request_advance(NavRequest *q,double deadline)
                 float progress=hypotf(q->fromPos[0]-q->source[0],q->fromPos[2]-q->source[2]);
                 if(q->n && progress>4){q->partial=1;request_finish(q,1,"ok (clear prefix before obstacle)");return;}
                 if(q->anchor>=0 && q->routeRestarts++<4){
-                    nav_release(q->nodes);q->nodes=NULL;q->n=0;
+                    nav_release(q->nodes);q->nodes=NULL;nav_release(q->ncost);q->ncost=NULL;q->n=0;
                     request_begin(q);return;
                 }
                 request_finish(q,0,"vehicle segment obstructed; checked alternatives exhausted");return;

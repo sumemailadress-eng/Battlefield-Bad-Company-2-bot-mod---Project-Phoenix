@@ -628,6 +628,29 @@ static int straight_walkable(const NavGrid *g, int a, int b)
     return node == b;
 }
 
+/* 1.6.9: what driving straight from node a to node b costs on the drive map (the planner's own per-cell costs). String
+   pulling for vehicles may only take a short cut that is no dearer than the planned route it replaces: 1.6.8 took any
+   straight line that stayed on drivable ground, up to 80 m, so a route A* had laid along a diagonal road was pulled
+   straight across the field beside it (the harness: 8 % of the driving on the road). */
+static float line_drive_cost(const NavGrid *g, int a, int b)
+{
+    static const float kCost[8] = {1.0f, 0.5f, 1.0f, 1.6f, 2.5f, 12.0f, 0.3f, 0.35f};   // as the planner's driveCost
+    if (!g_pathMask) return 0;
+    int bc = b / L, x = (a / L) % g->w, z = (a / L) / g->w, x1 = bc % g->w, z1 = bc / g->w, node = a;
+    int dx = abs(x1 - x), dz = abs(z1 - z), sx = x < x1 ? 1 : -1, sz = z < z1 ? 1 : -1, err = dx - dz;
+    float cost = 0;
+    while (x != x1 || z != z1) {
+        int e2 = 2 * err, mx = 0, mz = 0;
+        if (e2 > -dz) { err -= dz; mx = sx; }
+        if (e2 < dx) { err += dx; mz = sz; }
+        int d; for (d = 0; d < 8; d++) if (kDir[d][0] == mx && kDir[d][1] == mz) break;
+        node = step_node(g, node, d); if (node < 0) return 1e30f;
+        cost += ((d & 1) ? 1.4142f : 1.0f) * g->cell * kCost[g_pathMask[node] & 7];
+        x += mx; z += mz;
+    }
+    return cost;
+}
+
 // A soldier is ~0.8 m wide: test the centre line and lines offset BODY_HALF_WIDTH to each side, at knee and chest height.
 #define BODY_HALF_WIDTH 0.6f   // (a little more than a body: straightened legs keep off walls and corners)
 int nav_segment_clear(NavRayFn ray, const float *a, const float *b)

@@ -43,9 +43,60 @@ void rt_log(const char *fmt, ...)
 static int obs_read(void *c, uint32_t a, void *o, unsigned n) { (void)c; return eng_read(a, o, n); }
 int phx_observe_now(BC2Observation *o) { return bc2_observe(obs_read, NULL, g_engine.base, o) == BC2_OBSERVE_READY; }
 
+/* 1.6.9: ONE navcache for every Phoenix install - next to the BC2 server (BF-Portable\Battlefield_bc2_Server\PhoenixNavcache),
+   or NavcacheDir= in phoenix.ini. 1.6.8 kept it in the package folder, so unzipping a new version started every map from
+   nothing: the grid rebuilt, the vehicle scan again, and the routes humans drove, the drawn routes and the stuck spots gone. */
+static WCHAR g_navDir[1100];
+static void navcache_default(const WCHAR *serverExe)
+{
+    _snwprintf(g_navDir, 1100, L"%ls", serverExe); g_navDir[1099] = 0;
+    WCHAR *s = wcsrchr(g_navDir, L'\\'); if (s) *s = 0; else g_navDir[0] = 0;
+    wcsncat(g_navDir, L"\\PhoenixNavcache", 1099 - wcslen(g_navDir));
+}
+static int file_size(const WCHAR *p, LONGLONG *size)
+{
+    WIN32_FILE_ATTRIBUTE_DATA a; if (!GetFileAttributesExW(p, GetFileExInfoStandard, &a)) return 0;
+    *size = ((LONGLONG)a.nFileSizeHigh << 32) | a.nFileSizeLow; return 1;
+}
+/* the install's own navcache\ (older versions saved there) is merged in: files the shared folder lacks are copied, and a
+   .learn / .routes file is taken when it is bigger (more learned / more drawn). Nothing is deleted. */
+static void navcache_import(void)
+{
+    CreateDirectoryW(g_navDir, NULL);
+    WCHAR local[1100]; _snwprintf(local, 1100, L"%ls\\navcache", g_rootDir); local[1099] = 0;
+    if (!_wcsicmp(local, g_navDir)) return;
+    WCHAR pat[1200]; _snwprintf(pat, 1200, L"%ls\\*", local); pat[1199] = 0;
+    WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW(pat, &fd);
+    int added = 0, bigger = 0, kept = 0;
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            WCHAR src[1200], dst[1200]; _snwprintf(src, 1200, L"%ls\\%ls", local, fd.cFileName); _snwprintf(dst, 1200, L"%ls\\%ls", g_navDir, fd.cFileName);
+            src[1199] = dst[1199] = 0;
+            LONGLONG ss = 0, ds = 0; if (!file_size(src, &ss)) continue;
+            if (!file_size(dst, &ds)) { if (CopyFileW(src, dst, TRUE)) added++; continue; }
+            const WCHAR *ext = wcsrchr(fd.cFileName, L'.');
+            if (ext && (!_wcsicmp(ext, L".learn") || !_wcsicmp(ext, L".routes")) && ss > ds) { if (CopyFileW(src, dst, FALSE)) bigger++; }
+            else kept++;
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+        /* a note for whoever opens the old folder */
+        WCHAR note[1200]; _snwprintf(note, 1200, L"%ls\\WHERE-IS-MY-NAVCACHE.txt", local); note[1199] = 0;
+        FILE *f = _wfopen(note, L"wb");
+        if (f) { char a[1100]; WideCharToMultiByte(CP_ACP, 0, g_navDir, -1, a, sizeof a, NULL, NULL);
+            fprintf(f, "Project Phoenix %s keeps its navigation cache and everything the bots learned in:\r\n\r\n    %s\r\n\r\n"
+                       "The files in this folder were merged into it (missing files copied, a bigger .learn / .routes taken).\r\n"
+                       "Every Phoenix version and install uses that one folder, so nothing is lost when you unzip a new version.\r\n", PHX_VERSION, a);
+            fclose(f); }
+    }
+    char a[1100]; WideCharToMultiByte(CP_ACP, 0, g_navDir, -1, a, sizeof a, NULL, NULL);
+    rt_log("navcache: %s (shared by every Phoenix install) - from this install's navcache: %d file(s) added, %d bigger .learn/.routes taken, %d already there",
+           a, added, bigger, kept);
+}
+
 void rt_nav_cache_path(const char *key, char *out, unsigned size)
 {
-    WCHAR dir[1100]; _snwprintf(dir, 1100, L"%ls\\navcache", g_rootDir); dir[1099] = 0;
+    WCHAR dir[1100]; _snwprintf(dir, 1100, L"%ls", g_navDir); dir[1099] = 0;
     CreateDirectoryW(dir, NULL);
     WCHAR wkey[64]; MultiByteToWideChar(CP_ACP, 0, key, -1, wkey, 64);
     WCHAR path[1200]; _snwprintf(path, 1200, L"%ls\\%ls.nav", dir, wkey); path[1199] = 0;
@@ -99,6 +150,10 @@ static void load_config(void)
         else if (!_stricmp(k, "BotDamage")) g_cfg.botDamage = fmaxf(0.5f, fminf(3.0f, x));
         else if (!_stricmp(k, "ScoreboardNames")) g_cfg.scoreboard = (int)fmaxf(0, fminf(2, x));
         else if (!_stricmp(k, "FrozenRespawn")) g_cfg.frozenRespawn = fmaxf(0, fminf(600, x));
+        else if (!_stricmp(k, "NavcacheDir")) {   /* 1.6.9: a folder of your choice for the shared navcache */
+            char *e2 = v + strlen(v); while (e2 > v && (e2[-1] == '\r' || e2[-1] == '\n' || e2[-1] == ' ' || e2[-1] == '\t' || e2[-1] == '\\')) *--e2 = 0;
+            if (*v) MultiByteToWideChar(CP_ACP, 0, v, -1, g_navDir, 1100);
+        }
     }
     fclose(f);
     if (g_cfg.botsPerTeam * 2 > 44) g_cfg.botsPerTeam = 22;
@@ -228,7 +283,9 @@ __declspec(dllexport) DWORD WINAPI PhoenixStart(void *parameter)
     char why[64];
     if (!eng_verify(why, sizeof why)) { rt_log("RESULT FAILED code fingerprint mismatch: %s", why); InterlockedExchange(&g_failed, 1); return 14; }
     rt_log("engine: %u native fingerprints verified, module base 0x%08lx", 22u, (unsigned long)g_engine.base);
+    navcache_default(serverPath);
     load_config();
+    navcache_import();
     AddVectoredExceptionHandler(0, on_exception);
     BC2TickHookConfig hook; memset(&hook, 0, sizeof hook);
     hook.imageBase = g_engine.base; hook.exactImageHashVerified = 1; hook.afterUpdate = after_update;

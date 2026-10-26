@@ -72,6 +72,8 @@ typedef struct Bot {
     float vPrev[3], vFwd, vFwdPrev, escHeading, pathFrom[3]; double vPrevAt, escUntil, escDriveUntil, thrOnSince, pathFailLogAt, emplUntil, emplNoTgtAt, armUntil; uint32_t vPrevVeh, repairVeh; double armStart, armBlockUntil, fenceLogAt, doorKnifeAt; float vTrail[8][3]; int vTrailN; uint32_t vTrailVeh; const float *inChain; int inIdx, inOn, inLogged; double inDbgAt, inIdxAt, inBanUntil; double swimSince, wpnCheckAt, wpnOffSince, armBestAt; float armBest; int escTries, rockets, mcom, armTries, newLife, boatLand; double repairCheckAt, repairUntil, boatAgroundAt;
     /* 1.6.6 */
     int stopKilled, pathPartial; double stopExitAt, rejoinAt, rejoinPlanAt; double noRouteSince, hazAt, hazCutAt, routeWaitSince; float hazSpot[3], pathGap;
+    /* 1.6.9 */
+    float swimBank[3], swimBest; double swimBestAt, swimJumpAt; int swimHave; double islandAt; float island[3]; double islandUntil;
     double heldUntil[BC2_EiaUndefined];
     float levels[BC2_EiaUndefined];
     int pulse[BC2_EiaUndefined];
@@ -985,7 +987,17 @@ static void follow(Bot *b, double now, const float *dest, float *moveHeading, in
             if (n > 0) { memcpy(b->path, out, (size_t)n * 12); b->pathLen = n; b->pathIdx = path_nearest(b->path, n, b->pos); memcpy(b->pathGoal, dest, 12); b->pathAt = now; b->pathPending = 0; b->pgAt = 0; }
             else if (deferred) b->pathPending = 1;
             else { b->pathPending = 0; b->pathLen = 0; b->pathAt = now; memcpy(b->pathGoal, dest, 12);
-                if (dGoal < 45) indoor_request(dest, "no grid route to it");   /* 1.6.3 */ }
+                if (dGoal < 45) indoor_request(dest, "no grid route to it");   /* 1.6.3 */
+                /* 1.6.9: no route because the bot stands on an island of the grid (rubble, a ledge, a roof, a bank the map
+                   never linked): walk to the nearest ground on the connected map - however far - and plan from there,
+                   instead of walking straight at the goal off any route */
+                if (now > b->islandAt && !navg_main_area(b->pos)) {
+                    b->islandAt = now + 6;
+                    if (navg_main_near(b->pos, 150, b->island) && dist2d(b->island, b->pos) > 1.0f) {
+                        memcpy(b->detour, b->island, 12); b->detourUntil = now + fminf(30.0f, 4.0f + dist2d(b->pos, b->island) / 2.5f); b->islandUntil = b->detourUntil;
+                        static int il; if (il++ < 20 || g_cfg.verbose) rt_log("move: %s has no route from (%.0f, %.0f, %.0f) - off the connected map; back to it %.0f m away first", b->name, b->pos[0], b->pos[1], b->pos[2], dist2d(b->pos, b->island));
+                    }
+                } }
         }
     }
     if (b->pathLen) {
@@ -995,6 +1007,7 @@ static void follow(Bot *b, double now, const float *dest, float *moveHeading, in
         memcpy(target, &b->path[b->pathIdx * 3], 12);
         if (b->pathIdx == b->pathLen - 1 && dist2d(b->pos, target) < 1.5f) { b->pathLen = 0; memcpy(target, dest, 12); }
     }
+    if (now < b->islandUntil && dist2d(b->pos, b->island) < 1.5f) { b->islandUntil = 0; b->detourUntil = 0; b->pathAt = 0; b->pathLen = 0; }   /* 1.6.9: on the map again - a route from here */
     if (now < b->detourUntil) memcpy(target, b->detour, 12);
     *wayDist = dist2d(b->pos, target);
     if (*wayDist < 1.2f && dGoal < 2.0f) return;
@@ -1206,6 +1219,7 @@ static int crew_spawn(Bot *b, const int *cand, int n, const float *to)
         const DriveCalib *cc = calib_for(v->data, 0);
         int heli = v->kind == VK_HELI || (cc && cc->air);
         if (heli ? !g_cfg.helicopters : (v->kind != VK_GROUND && v->kind != VK_UNKNOWN)) continue;
+        if (!heli && !navg_ready()) continue;   /* 1.6.8: no drive map yet */
         if (!heli && drivers >= 5) continue;
         if (cc && (cc->ok < 0 || cc->crashes >= 3)) continue;
         if (eng_vehicle_occupant(v->entity, 0) || veh_claimed(v->entity, b, now) || veh_banned(v->entity, now)) continue;
@@ -1359,6 +1373,7 @@ static void vehicle_consider(Bot *b, double now, int engaging)
             if (heli) {
                 if (distFlag < 80 || !veh_on_ground(v->pos)) continue;
             } else {
+                if (!navg_ready() && v->kind != VK_BOAT) continue;   /* 1.6.8: no drive map yet (first round on a map) - no route to drive */
                 if (distFlag < (veh_armoured(v->name) ? 80 : 110)) continue;
                 int drivers = 0; for (int k = 0; k < MAX_BOTS; k++) if (g_bots[k].used && g_bots[k].team == b->team && g_bots[k].vehRole == VR_DRIVER) drivers++;
                 if (drivers >= 5 || (!mine && !veh_armoured(v->name) && rt_randf() > 0.8f)) continue;   /* armour is always taken */
@@ -2088,8 +2103,15 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
             f >= 0 && distFlag >= (veh_armoured(vi.name) ? 80 : 110) && !veh_banned(veh, now)) {
             const DriveCalib *dc = calib_for(vi.data, 0);
             if (!(dc && (dc->ok < 0 || dc->crashes >= 3)) && eng_vehicle_seat_allowed(veh, b->player, 0)) {
-                eng_enter_vehicle(b->player, veh, 0);
-                if (eng_vehicle_occupant(veh, 0) == b->player) {
+                /* out of the passenger seat first, then into the driver's (enterVehicle from inside another seat is not
+                   something the game expects); if the driver's seat refuses, the bot is simply on foot next to it */
+                if (!eng_exit_vehicle(b->player)) { vehicle_leave(b, now, "no driver"); return; }
+                if (!eng_enter_vehicle(b->player, veh, 0) || eng_vehicle_occupant(veh, 0) != b->player) {
+                    rt_log("vehicles: %s got out of '%s' (no driver) - the driver's seat would not take it", b->name, vi.name);
+                    b->lastVeh = veh; b->vehRole = VR_NONE; b->vehicle = 0; b->vehSince = 0; b->vehCheckAt = now + 6; b->pathLen = 0; b->stuckCount = 0; b->frozenSince = now;
+                    return;
+                }
+                {
                     b->seat = 0; b->vehRole = VR_DRIVER; b->vehSince = now; b->vehProgressAt = now; b->vehProgressDist = 1e30f; b->steerCalib = 0; b->reverseUntil = 0; b->unpinTries = 0;
                     b->pathLen = 0; b->pathPending = 0; b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12); b->noRouteSince = 0; b->routeWaitSince = 0;
                     memcpy(b->calibStart, vi.pos, 12); b->calibAt = now; veh_claim(veh, b, now, 600);
@@ -2260,6 +2282,10 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
        was asked (1.4 asked again from every new position: a route request restarts when its start moves 4 m, so a vehicle
        rolling on while its long route was searched never got one - half the drives of the 22:54 log were straight lines) */
     float *goal = g_world.cps[f].pos;
+    /* 1.6.8: the grid is still being built (a map's first round): there is no drive map to plan on. 1.6.6/1.6.7 counted
+       that as "no drivable route" - and 1.6.8's 90 s skip then kept every vehicle parked for minutes after the grid was
+       done. Get out without marking the vehicle; bots take it again once the map is ready. */
+    if (!navg_ready()) { vehicle_leave(b, now, "the map is still being surveyed - no routes yet"); return; }
     if (b->pathPending || !b->pathLen || now - b->pathAt > 15 || dist2d(b->pathGoal, goal) > 5) {
         if (!b->pathPending || dist2d(b->pathFrom, vi.pos) > 60) memcpy(b->pathFrom, vi.pos, 12);
         float out[MAX_PATH_PTS * 3]; int deferred = 0;
@@ -2397,11 +2423,22 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
             /* on the route itself and close: cut the spot from the drive map and plan round it before the bumper is there */
             if (hz < 7.0f && fabsf(wrap_pi(heading_to(vi.pos, target) - vehHeading)) < 0.45f && now > b->hazCutAt + 4 && dist2d(where, b->hazSpot) > 2.0f) {
                 int cut = navg_vehicle_block(where, 1.3f);
+                /* 1.6.9: follow the obstacle sideways - a row of barriers or a divider across the road is cut as a line, not
+                   as one cell the next route then grazes (the harness: the same barrier hit again and again) */
+                if (kind == 1) for (int sd = -1; sd <= 1; sd += 2) for (int k = 1; k <= 4; k++) {
+                    float px = where[0] + cosf(vehHeading) * sd * 2.5f * k, pz = where[2] - sinf(vehHeading) * sd * 2.5f * k;
+                    float a2[3] = {px - sinf(vehHeading) * 1.5f, vi.pos[1] + 0.5f, pz - cosf(vehHeading) * 1.5f}, b2[3] = {px + sinf(vehHeading) * 1.5f, vi.pos[1] + 0.5f, pz + cosf(vehHeading) * 1.5f}, h2[3], n2[3];   /* bumper height above the vehicle's ground */
+                    if (!eng_ray(a2, b2, h2, n2) || n2[1] > 0.7f) break;   /* the obstacle ends here */
+                    float sp[3] = {px, where[1], pz}; cut += navg_vehicle_block(sp, 1.3f);
+                }
                 b->hazCutAt = now; memcpy(b->hazSpot, where, 12);
                 if (cut) {
                     static const char *kname[] = {"?", "a low obstacle", "a step", "a drop"};
                     static int hl; if (hl++ < 40 || g_cfg.verbose) rt_log("vehicles: %s sees %s %.1f m ahead of '%s' at (%.0f, %.0f) - %d drive cell(s) cut, new route", b->name, kname[kind], hz, vi.name, where[0], where[2], cut);
                     b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12);
+                    /* 1.6.9: and stop on the spot - 1.6.8 drove on along the old route while the new one was planned, into the
+                       very barrier it had just seen (the harness: "sees a low obstacle 6.8 m ahead", "stuck" 8 s later) */
+                    b->pathLen = 0; b->pathPending = 0; veh_hold(b, c); return;
                 }
             }
         }
@@ -2740,19 +2777,40 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
         }
         if (g_cfg.frozenRespawn > 0 && frozen > g_cfg.frozenRespawn) b->redeploy = 1;
         /* walking on air: nothing under the bot for 4 s (and not falling back) -> redeploy */
+        if (cstate != 6 && b->swimHave) {   /* 1.6.9: out of the water - drop the bank and plan a route from where it climbed out */
+            b->swimHave = 0; b->detourUntil = 0; b->pathAt = 0; b->pathLen = 0; b->pathPending = 0;
+            static int outLogs; if (outLogs++ < 12 || g_cfg.verbose) rt_log("bot %s: out of the water at (%.0f, %.0f, %.0f) after %.0f s - back on a route", b->name, b->pos[0], b->pos[1], b->pos[2], now - b->swimSince);
+        }
         if (cstate == 6) {   /* swimming (Nelson Bay's river: 1.2 took swimmers for sky-walkers and redeployed 60 of them) */
             b->skyCount = 0;
-            if (!b->swimSince) b->swimSince = now;
+            if (!b->swimSince) { b->swimSince = now; b->swimHave = 0; b->swimBest = 1e30f; b->swimBestAt = now; }
             if (now > b->swimAt) {
                 b->swimAt = now + 1.5;
                 /* 1.5.2: the grid took this water for ground (Valparaiso's harbour) - flag the surface as water so routes keep
-                   out of it, and swim for the nearest bank that can be climbed */
+                   out of it. 1.6.9: swim for the best bank within 120 m - one that can be climbed, on the connected map, on
+                   the way to where the bot is going (it is chosen again every 6 s, the bank kept while it gets closer) */
                 learn_water(b->pos);
                 b->pathAt = 0; b->pathLen = 0; b->pathPending = 0;
-                float land[3]; int got = navg_land_near(b->pos, 45, land);
-                if (got) { memcpy(b->detour, land, 12); b->detourUntil = now + 5; }
-                static int swimLogs; if (swimLogs++ < 6) rt_log("bot %s: swimming at (%.0f, %.0f, %.0f) - %s", b->name, b->pos[0], b->pos[1], b->pos[2], got ? "heading for the nearest bank" : "no bank close by"); }
-            if (now - b->swimSince > 25) { b->redeploy = 1; b->swimSince = 0; b->frozenSince = now; rt_log("bot %s: could not get out of the water - redeploying it", b->name); }
+                if (!b->swimHave || now - b->swimBestAt > 6) {
+                    float land[3]; int got = navg_land_best(b->pos, 120, b->haveGoal ? b->goal : NULL, land);
+                    if (!got) got = navg_land_near(b->pos, 45, land);
+                    if (got && (!b->swimHave || dist2d(land, b->swimBank) > 4)) { memcpy(b->swimBank, land, 12); b->swimHave = 1; b->swimBest = dist2d(b->pos, land); b->swimBestAt = now; }
+                    static int swimLogs; if (swimLogs++ < 12 || g_cfg.verbose) rt_log("bot %s: swimming at (%.0f, %.0f, %.0f) - %s", b->name, b->pos[0], b->pos[1], b->pos[2],
+                                                                                    got ? "heading for the best bank to climb out" : "no bank within 120 m");
+                }
+                if (b->swimHave) { memcpy(b->detour, b->swimBank, 12); b->detourUntil = now + 2.0; }
+            }
+            if (b->swimHave) {
+                float d = dist2d(b->pos, b->swimBank);
+                if (d < b->swimBest - 1.0f) { b->swimBest = d; b->swimBestAt = now; }
+                if (d < 4.0f && now > b->swimJumpAt) { b->swimJumpAt = now + 0.8; press(b, BC2_EiaJump); }   /* at the bank: climb out over the lip */
+            }
+            /* 1.6.9: redeployed only when it stops getting closer to land (20 s) or after 2 minutes - 1.6.8 gave every
+               swimmer 25 s, however near the bank it was */
+            if ((b->swimHave ? now - b->swimBestAt > 20 : now - b->swimSince > 25) || now - b->swimSince > 120) {
+                b->redeploy = 1; b->swimSince = 0; b->swimHave = 0; b->frozenSince = now;
+                rt_log("bot %s: could not get out of the water - redeploying it", b->name);
+            }
         } else if ((b->swimSince = 0), now > b->skyCheckAt) {
             b->skyCheckAt = now + 1.0;
             float a[3] = {b->pos[0], b->pos[1] + 0.3f, b->pos[2]}, c[3] = {b->pos[0], b->pos[1] - 6.0f, b->pos[2]}, hh[3], nn[3];

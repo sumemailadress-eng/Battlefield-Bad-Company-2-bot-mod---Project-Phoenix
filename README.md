@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.6.8** (release 1.2). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.6.9** (release 1.3). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -43,19 +43,22 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 ### Navigation
 - Phoenix builds a **navigation grid** for each map by ray-casting the server's physics world. A* plans the routes. The
-  first visit to a map takes a few minutes, and the grid is saved in `navcache\` after that.
-- Stairs, ladders, doors, water (bots swim to the nearest bank they can climb) and the danger zones where bots keep
-  dying.
+  first visit to a map takes a few minutes, and the grid is saved after that in the shared navcache,
+  `<server folder>\PhoenixNavcache` (1.6.9; `NavcacheDir=` in `phoenix.ini` picks another folder).
+- Stairs, ladders, doors, water and the danger zones where bots keep dying. Swimmers head for the best bank they can
+  climb within 120 m, on the way to their goal, and take a route again once they are out (1.6.9).
+- A bot standing on a part of the grid that isn't connected to the rest walks back to connected ground, however far,
+  and takes a route from there (1.6.9).
 - **Learning**: stuck spots and the move that got a bot past each one, deaths and kills, good sniper and window spots,
-  and the routes human players walk and drive. All of it is saved per map in `navcache\<map>.learn`.
+  and the routes human players walk and drive. All of it is saved per map in `PhoenixNavcache\<map>.learn`.
 
 ### Vehicles
 - Bots drive ground vehicles and boats, fly helicopters (with a geofence so they don't leave the map) and use
   stationary weapons. Each vehicle type's controls and turret are calibrated automatically the first time a bot uses it.
 - **Road detection** (1.6.6): Phoenix reads the level's own road data (road objects and terrain road splines) from
-  server memory. It checks every road line against the ground and makes the road cells the preferred lanes. Since
-  1.6.8 routes keep to them: no straight-line short cut across the fields beyond the last 30 m, and a route leaves the
-  road only where the planner turned off it.
+  server memory. It checks every road line against the ground and makes the road cells the preferred lanes. Routes
+  keep to them (1.6.9): the planner weighs the road properly, and a smoothed route may not cut a corner that costs more
+  than the road it replaces.
 - **Vehicle scan** (1.6.5): a one-time ray scan per map that finds kerbs, road dividers, steps and low walls a wheel
   can't cross. The planner never routes across them.
 - **Routing** (1.6.6): routes always start and end in the same connected drivable area. If a flag is off the road, the
@@ -63,7 +66,7 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 - **Path following** (1.6.6): drivers follow the route line instead of cutting corners, steer back when they drift, and
   slow down for bends.
 - **Hazard probes** (1.6.6): rays ahead of the bumper detect barrels, road blockers, stairs, steps and drops. The spot is
-  cut from the map and the vehicle re-routes before it hits anything.
+  cut from the map, along the whole line of a barrier (1.6.9), and the vehicle stops and re-routes before it hits anything.
 - **Crews** (1.6.8): when the driver gets out, a passenger moves over and drives on, or the crew gets out at once.
 - When a vehicle is boxed in, it backs out the way it came. Spots where vehicles got stuck are remembered across rounds.
 - **Your driving teaches them**: cells you drive are preferred routes. You can also **draw routes** for vehicles in the
@@ -95,6 +98,11 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
    folder. That zip has `PhoenixLauncher.exe`, `bin\PhoenixBC2.dll` and `bin\PhoenixAttach.exe` ready to run.
    **Code → Download ZIP** and the "Source code" archives are the source only - no programs; build them yourself
    (below) or use the release zip.
+   **Updating from an older version?** Nothing to copy. Since 1.6.9 the maps already surveyed and everything the bots
+   learned are kept in one folder next to your server, `<server folder>\PhoenixNavcache` (for example
+   `D:\BF-Portable\Battlefield_bc2_Server\PhoenixNavcache`), and every install uses it. The first time a new install
+   attaches, the `navcache` folder of that install is merged in. To bring in an older install's `navcache`, copy
+   its files into `PhoenixNavcache`, or start the bots once from that install.
 2. If you want the bots to show up on the scoreboard with names, run `backend\Add-Bot-Accounts.bat` once with MySQL
    running. It adds one backend account per bot.
 3. Open `phoenix.ini` and set the number of bots and the difficulty, or set them in the launcher.
@@ -117,7 +125,8 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 4. `Stop-Bots.bat` removes every bot. To load a new Phoenix version, restart the server first.
 
 **The first round on a new map** is slower to get going because the bots survey the map: the navigation grid, the
-stair check and the vehicle scan. Everything is saved in `navcache\`, so the next visit starts straight away.
+stair check and the vehicle scan. Everything is saved in `PhoenixNavcache`, so the next visit starts straight away.
+Until the grid is ready, bots don't drive ground vehicles.
 
 ## Settings (`phoenix.ini`)
 
@@ -134,15 +143,16 @@ stair check and the vehicle scan. Everything is saved in `navcache\`, so the nex
 | `RushObjectives` | 1 | Arm and defuse M-COMs in Rush |
 | `FrozenRespawn` | 30 | Seconds pinned in place before a bot is respawned |
 | `KeepBotPlayers` | 1 | Dead bots keep their player, so scores add up |
+| `NavcacheDir` | (empty) | Where maps and learning are kept. Empty means `<server folder>\PhoenixNavcache` |
 
 Every option is commented in the file itself. The settings are read when the bots attach.
 
 ## Draw routes for vehicles
 
 1. In the launcher, click **Bot learning...**, or open `LearnViewer.html` directly.
-2. Click **Open navcache folder** and pick the `navcache` folder.
+2. Click **Open navcache folder** and pick the `PhoenixNavcache` folder next to your server (the launcher names it).
 3. Choose a map, click **Draw vehicle route**, click along the road, then **Finish route**, then **Save routes**. Save the
-   file as `navcache\<map>.routes`.
+   file as `PhoenixNavcache\<map>.routes`.
 
 Bots read the file again whenever it changes, even mid-round.
 

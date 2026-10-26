@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "bc2_observe.h"
 
-#define PHX_VERSION "1.6.8"
+#define PHX_VERSION "1.6.9"
 #define MAX_BOTS 48
 #define MAX_CPS 16
 #define MAX_SPAWNS 64
@@ -178,6 +178,8 @@ int  navg_drive_line_ok(const float *a, const float *b);   /* 1.6.6: the straigh
 const char *navg_last_error(void);
 int  navg_mark_water(const float *pos, float radius);
 int  navg_land_near(const float *pos, float radius, float *out);
+int  navg_land_best(const float *pos, float radius, const float *goal, float *out);   /* 1.6.9 */
+int  navg_main_near(const float *pos, float radius, float *out);                      /* 1.6.9 */
 void learn_water(const float *pos);
 void learn_vehicle_stuck(const float *pos);   /* 1.6.5 */
 int  learn_near_water(const float *pos, float r);   /* 1.6 */

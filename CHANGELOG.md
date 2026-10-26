@@ -23,6 +23,21 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.6.9 - one navcache for good, vehicles that keep to the road, swimmers that get out
+
+**Your navcache is always used.** The navigation cache and everything the bots learn (stuck spots, the routes you drove, the routes you drew, the vehicle scan, the map's roads) now live in **one folder next to the BC2 server**: `<server folder>\PhoenixNavcache`, e.g. `D:\BF-Portable\Battlefield_bc2_Server\PhoenixNavcache`. Every Phoenix version and every install uses it, so unzipping a new version no longer starts every map from nothing. When the bots attach, the install's own `navcache\` folder (where older versions saved) is merged in: files the shared folder lacks are copied, a bigger `.learn` / `.routes` is taken, nothing is deleted - and a `WHERE-IS-MY-NAVCACHE.txt` there says where it went. The log says `navcache: ... (shared by every Phoenix install)`. `NavcacheDir=` in `phoenix.ini` picks another folder; the launcher's learning-map button names the folder to open.
+
+**Vehicle routes keep to the road** (checked in the offline harness: on the road test, 71 % of the driving on the road, against 30 % in 1.6.7 and 8 % in 1.6.8).
+- *The planner was greedy.* Its distance estimate counted 0.7 a metre - more than open ground (0.5) or a road (0.35) costs - so it ran straight at the flag and a road beside the line barely counted. It is 0.4 now (and the search may look at 40 000 cells, was 16 000).
+- *Short cuts may not be dearer than the route.* Smoothing a route took any straight line up to 80 m that stayed on drivable ground - straight across the field beside a diagonal road. A short cut now has to cost no more than the planned stretch it replaces, the first leg from the vehicle included.
+- *Barriers across the road.* A driver that sees a low obstacle ahead now follows it sideways and cuts the whole line of it from the drive map, and **stops** until the new route is there (1.6.8 drove on along the old route into the barrier it had just seen).
+- *Passengers taking the wheel* get out of their seat first and then into the driver's (1.6.8 asked the game to enter the driver's seat from inside another seat).
+- *A map's first round:* no ground vehicle is driven until the grid is ready, and a driver already in one gets out without the vehicle being marked as having no route (1.6.8 then kept every vehicle parked for 90 s more).
+
+**Swimmers get back to land.** A swimmer used to head for the nearest climbable bank within 45 m and was redeployed after 25 s (38 times in one Panama Canal round). Now it picks the best bank within 120 m - climbable, on the connected map, on the way to where it is going - jumps to climb the lip once it is there, and is redeployed only when it stops getting closer for 20 s (or after 2 minutes). Out of the water, it plans a route from where it climbed out.
+
+**Back on a route, whatever the distance.** A soldier that cannot get a route because it stands on a part of the grid that is not connected to the rest (rubble, a ledge, a roof, a bank) walks to the nearest connected ground first - however far - and plans from there, instead of walking straight at its goal ("move: Joe has no route ... back to it 23 m away first").
+
 ## What changed in 1.6.8 - off the first flag, vehicles on the roads, no crews left sitting
 
 - **Bots no longer stay at the first flag they take.** The vehicle that spawns at a newly taken flag often had no route out ("A* exhausted after 1 nodes"). A bot got in, waited 25 s for a route, got out - and 6 s later it or a teammate got back in ("back to the ride we came in"). In the 1.6.7 log a whole team sat at CommCenter this way. Now a vehicle its crew left for want of a route (no drivable route, waited 25 s, no progress in 35 s) is left alone for 90 s, and the bots walk their route to the next flag.

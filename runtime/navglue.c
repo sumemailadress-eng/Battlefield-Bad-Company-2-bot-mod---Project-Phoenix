@@ -595,6 +595,54 @@ int navg_main_area(const float *pos)
     return l > 0 && l <= nlab && size && size[l] >= 1500;
 }
 
+/* 1.6.9: where a swimmer gets out. navg_land_near took the nearest climbable bank within 45 m; on Panama Canal's quays
+   (7 m walls) there often was none that close, or the nearest was a ledge cut off from the map, and the bot was
+   redeployed after 25 s (38 times in one round). Now: banks up to 'radius' away, scored by distance plus a share of the
+   way on from there to where the bot is going, and a bank on the big connected walkable area first. */
+int navg_land_best(const float *pos, float radius, const float *goal, float *out)
+{
+    if (!navg_ready()) return 0;
+    NavGrid *g = g_grid; int c = nav_cell_index(g, pos[0], pos[2]); if (c < 0) return 0;
+    int r = (int)(radius / g->cell), cx0 = c % g->w, cz0 = c / g->w, found = 0; float best = 1e30f;
+    for (int dz = -r; dz <= r; dz++) for (int dx = -r; dx <= r; dx++) {
+        int x = cx0 + dx, z = cz0 + dz; if (x < 0 || z < 0 || x >= g->w || z >= g->h) continue;
+        float d = hypotf((float)dx, (float)dz) * g->cell; if (d > radius || d >= best) continue;
+        for (int l = 0; l < NAV_LAYERS; l++) { int nd = (z * g->w + x) * NAV_LAYERS + l;
+            if (!(g->flags[nd] & NAV_WALKABLE) || (g->flags[nd] & NAV_WATER)) continue;
+            float up = g->height[nd] - pos[1]; if (up < 0.2f || up > 1.8f) continue;
+            int links = 0; for (int k = 0; k < 8; k++) if (g->edges[nd] & (1 << k)) links++;
+            if (links < 4) continue;   /* a real floor, not a ledge */
+            float p[3] = {g->x0 + x * g->cell, g->height[nd], g->z0 + z * g->cell};
+            float sc = d + (goal ? 0.3f * hypotf(goal[0] - p[0], goal[2] - p[2]) : 0) + (navg_main_area(p) ? 0 : 150.0f);
+            if (sc < best) { best = sc; memcpy(out, p, 12); found = 1; }
+        }
+    }
+    return found;
+}
+/* 1.6.9: the nearest walkable, dry node on the big connected area - where a bot on an island of the grid (rubble, a
+   ledge, a roof the grid never linked) walks to so that it can take a route again */
+int navg_main_near(const float *pos, float radius, float *out)
+{
+    if (!navg_ready()) return 0;
+    NavGrid *g = g_grid; int c = nav_cell_index(g, pos[0], pos[2]); if (c < 0) return 0;
+    int r = (int)(radius / g->cell), cx0 = c % g->w, cz0 = c / g->w;
+    for (int ring = 1; ring <= r; ring++) {
+        float bd = 1e30f; int found = 0;
+        for (int dz = -ring; dz <= ring; dz++) for (int dx = -ring; dx <= ring; dx++) {
+            if (abs(dx) != ring && abs(dz) != ring) continue;
+            int x = cx0 + dx, z = cz0 + dz; if (x < 0 || z < 0 || x >= g->w || z >= g->h) continue;
+            for (int l = 0; l < NAV_LAYERS; l++) { int nd = (z * g->w + x) * NAV_LAYERS + l;
+                if (!(g->flags[nd] & NAV_WALKABLE) || (g->flags[nd] & NAV_WATER) || !g->edges[nd]) continue;
+                float p[3] = {g->x0 + x * g->cell, g->height[nd], g->z0 + z * g->cell};
+                float dd = hypotf(p[0] - pos[0], p[2] - pos[2]) + fabsf(p[1] - pos[1]) * 2.0f;
+                if (dd < bd && navg_main_area(p)) { bd = dd; memcpy(out, p, 12); found = 1; }
+            }
+        }
+        if (found) return 1;
+    }
+    return 0;
+}
+
 /* 1.6.3: is this point on the lowest walkable surface of its grid cell (the ground, not a balcony or an upper floor)? */
 int navg_on_ground(const float *pos)
 {
