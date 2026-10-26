@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "bc2_observe.h"
 
-#define PHX_VERSION "1.6.9"
+#define PHX_VERSION "1.6.10"
 #define MAX_BOTS 48
 #define MAX_CPS 16
 #define MAX_SPAWNS 64
@@ -144,6 +144,7 @@ void bots_stop_all(void);
 int bots_stop_step(double now);   /* 1.6.6: staged stop, 1 = done */
 void bots_status(void);
 int  bots_count(void);
+void bots_perf(double *out);   /* 1.6.10: seconds in thinking / driving / movement step since the last call */
 
 /* nav glue (navglue.c) */
 void navg_tick(double now);

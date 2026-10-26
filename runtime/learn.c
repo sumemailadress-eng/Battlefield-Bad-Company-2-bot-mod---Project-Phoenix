@@ -130,7 +130,7 @@ static void learn_load(void)
         fclose(f);
     }
     navg_vehicle_stuck_spots((const float (*)[3])g_vstuck, g_nVstuck);
-    if (g_nVstuck) rt_log("learn: %d spot(s) where vehicles got stuck before - cut from the drive map", g_nVstuck);
+    if (g_nVstuck) rt_log("learn: %d spot(s) where vehicles got stuck before - made dear on the drive map (routes go round them)", g_nVstuck);
     { int wn = 0; for (int i = 0; i < g_nWater; i++) wn += navg_mark_water(g_water[i], 50);
       if (g_nWater) rt_log("learn: %d water spot(s) - %d grid node(s) marked as water, routes keep out of it", g_nWater, wn); }
     /* spots nobody ever got through: cut those links again */

@@ -854,6 +854,68 @@ static int link_between(const NavGrid *g, int a, int b)
 }
 const char *nav_last_error(void) { return g_lastError; }
 
+/* 1.6.10: the same re-probe, a little per tick. nav_reprobe_area did a whole patch at once - a 6 m patch re-links ~64
+   cells x 8 directions, thousands of rays - and the live 1.6.10 log showed navigation ticks of 120-130 ms (the server
+   stalls for four frames) whenever a stuck bot asked for one. Step 0 probes the cells, step 1 re-links the patch and its
+   border, both resuming where they stopped once maxMs is used. Returns 1 when the patch is done. */
+int nav_reprobe_begin(const NavGrid *g, float x0, float z0, float x1, float z1, float fromY, NavReprobe *r)
+{
+    memset(r, 0, sizeof *r);
+    int c0 = nav_cell_index(g, x0, z0), c1 = nav_cell_index(g, x1, z1);
+    if (c0 < 0 || c1 < 0) return 0;
+    r->ax = c0 % g->w; r->az = c0 / g->w; r->bx = c1 % g->w; r->bz = c1 / g->w; r->fromY = fromY;
+    if (r->ax > r->bx) { int t = r->ax; r->ax = r->bx; r->bx = t; }
+    if (r->az > r->bz) { int t = r->az; r->az = r->bz; r->bz = t; }
+    r->active = 1;
+    return 1;
+}
+int nav_reprobe_run(NavGrid *g, NavRayFn ray, NavReprobe *r, double maxMs)
+{
+    if (!r->active) return 1;
+    double deadline = now_ms() + maxMs;
+    int w0 = r->bx - r->ax + 1, n0 = w0 * (r->bz - r->az + 1);
+    while (r->phase == 0 && r->cur < n0) {
+        if (now_ms() >= deadline) return 0;
+        int cx = r->ax + r->cur % w0, cz = r->az + r->cur / w0; r->cur++;
+        int cell = cz * g->w + cx;
+        float x, z, hit[3];
+        cell_pos(g, cx, cz, &x, &z);
+        float a[3] = {x, r->fromY, z}, b[3] = {x, r->fromY - 30.0f, z};
+        if (!ray(a, b, hit, NULL)) continue;
+        int have = 0, freeL = -1;
+        for (int l = 0; l < L; l++) {
+            int node = cell * L + l;
+            if (g->flags[node] & NAV_WALKABLE) { if (fabsf(g->height[node] - hit[1]) < 0.4f) have = 1; }
+            else if (freeL < 0) freeL = l;
+        }
+        if (have) continue;
+        if (freeL < 0) {
+            int best = -1, bestEdges = 99;
+            for (int l = 1; l < L; l++) {
+                int ne = 0;
+                for (int d = 0; d < 8; d++) if (g->edges[cell * L + l] & (1 << d)) ne++;
+                if (ne < bestEdges || (ne == bestEdges && g->height[cell * L + l] < g->height[cell * L + best])) { bestEdges = ne; best = l; }
+            }
+            if (best < 0) continue;
+            freeL = best;
+        }
+        int node = cell * L + freeL;
+        g->height[node] = hit[1]; g->flags[node] |= NAV_WALKABLE; g->edges[node] = 0;
+        r->added++;
+    }
+    if (r->phase == 0) { r->phase = 1; r->cur = 0; }
+    int w1 = r->bx - r->ax + 3, n1 = w1 * (r->bz - r->az + 3);
+    while (r->cur < n1 * 8) {
+        if (now_ms() >= deadline) return 0;
+        int c = r->cur / 8, d = r->cur % 8; r->cur++;
+        int cx = r->ax - 1 + c % w1, cz = r->az - 1 + c / w1;
+        if (cx < 0 || cz < 0 || cx >= g->w || cz >= g->h) continue;
+        probe_edge(g, ray, cz * g->w + cx, d);
+    }
+    r->active = 0;
+    return 1;
+}
+
 int nav_reprobe_area(NavGrid *g, NavRayFn ray, float x0, float z0, float x1, float z1, float fromY)
 {
     int c0 = nav_cell_index(g, x0, z0), c1 = nav_cell_index(g, x1, z1), added = 0;
@@ -1329,6 +1391,23 @@ int nav_mask_block(const NavGrid *g, unsigned char *mask, float x, float z, floa
             int x2 = cx + dx, z2 = cz + dz;
             if (x2 < 0 || z2 < 0 || x2 >= g->w || z2 >= g->h || (dx * dx + dz * dz) * g->cell * g->cell > radius * radius) continue;
             for (int l = 0; l < L; l++) { int node = (z2 * g->w + x2) * L + l; if (mask[node]) { mask[node] = 0; n++; } }
+        }
+    return n;
+}
+
+/* 1.6.10: the same circle made the dearest class (5) instead of cut - for spots learned in earlier rounds. 74 of them
+   cut out of Panama Canal's drive map split it into 470 pieces, and a base whose way out crossed one got routes that
+   ended 170 m short of the flag. Dear, a route still goes round them, but they no longer wall anything in. */
+int nav_mask_dear(const NavGrid *g, unsigned char *mask, float x, float z, float radius)
+{
+    int r = (int)(radius / g->cell) + 1, c = nav_cell_index(g, x, z), n = 0;
+    if (c < 0) return 0;
+    int cx = c % g->w, cz = c / g->w;
+    for (int dz = -r; dz <= r; dz++)
+        for (int dx = -r; dx <= r; dx++) {
+            int x2 = cx + dx, z2 = cz + dz;
+            if (x2 < 0 || z2 < 0 || x2 >= g->w || z2 >= g->h || (dx * dx + dz * dz) * g->cell * g->cell > radius * radius) continue;
+            for (int l = 0; l < L; l++) { int node = (z2 * g->w + x2) * L + l; if (mask[node] && mask[node] != 5) { mask[node] = 5; n++; } }
         }
     return n;
 }

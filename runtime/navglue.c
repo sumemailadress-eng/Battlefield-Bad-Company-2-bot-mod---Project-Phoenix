@@ -101,11 +101,15 @@ static void navg_maintain(double now)
         int back = nav_unblock_expired(g_grid, 0);
         if (back && g_cfg.verbose) rt_log("nav: %d link(s) blocked at stuck spots are open again", back);
     }
-    if (g_reprobeN && now > g_reprobeAt) {
-        g_reprobeAt = now + 0.35;
+    /* 1.6.10: one re-probe at a time, at most 1.5 ms a tick (it used to be done in one go: 120-130 ms ticks) */
+    static NavReprobe rp; static const NavGrid *rpGrid;
+    if (rp.active && rpGrid != g_grid) rp.active = 0;
+    if (!rp.active && g_reprobeN && now > g_reprobeAt) {
         float *q = g_reprobeQ[--g_reprobeN];
-        int added = nav_reprobe_area(g_grid, nav_ray, q[0] - q[3], q[2] - q[3], q[0] + q[3], q[2] + q[3], q[1] + 3.0f);
-        g_reprobes++; g_reprobeAdded += (unsigned)added;
+        if (nav_reprobe_begin(g_grid, q[0] - q[3], q[2] - q[3], q[0] + q[3], q[2] + q[3], q[1] + 3.0f, &rp)) rpGrid = g_grid;
+    }
+    if (rp.active && nav_reprobe_run(g_grid, nav_ray, &rp, 1.5)) {
+        g_reprobeAt = now + 0.35; g_reprobes++; g_reprobeAdded += (unsigned)rp.added;
     }
 }
 
@@ -176,8 +180,8 @@ static void dscan_apply(void)
         if (w >= 0 && (g_dscan[w] & 1)) bad++; if (s2 >= 0 && (g_dscan[s2] & 2)) bad++;
         if (bad >= 2) { g_driveMask[node] = 0; removed++; } else if (bad == 1) { g_driveMask[node] = 5; dear++; }
     }
-    int stuck = 0; for (int i = 0; i < g_nVstuck; i++) stuck += nav_mask_block(g_grid, g_driveMask, g_vstuck[i][0], g_vstuck[i][2], 3.5f);
-    if (g_dscanDone || g_nVstuck) rt_log("nav: vehicle scan - %d node(s) off the drive map (steps, kerbs, dividers), %d made dear; %d cut where vehicles got stuck before", removed, dear, stuck);
+    int stuck = 0; for (int i = 0; i < g_nVstuck; i++) stuck += nav_mask_dear(g_grid, g_driveMask, g_vstuck[i][0], g_vstuck[i][2], 3.5f);   /* 1.6.10: dear, not cut (they split the map) */
+    if (g_dscanDone || g_nVstuck) rt_log("nav: vehicle scan - %d node(s) off the drive map (steps, kerbs, dividers), %d made dear; %d made dear where vehicles got stuck before", removed, dear, stuck);
     g_dscanApplied = g_dscanDone; mask_changed();
 }
 static void roads_apply(void);
@@ -225,7 +229,7 @@ static void dscan_step(int budget)
 void navg_vehicle_stuck_spots(const float (*pos)[3], int n)
 {
     g_nVstuck = n > 256 ? 256 : n; memcpy(g_vstuck, pos, sizeof(float) * 3 * g_nVstuck);
-    if (g_driveMask) for (int i = 0; i < g_nVstuck; i++) nav_mask_block(g_grid, g_driveMask, g_vstuck[i][0], g_vstuck[i][2], 3.5f);
+    if (g_driveMask) for (int i = 0; i < g_nVstuck; i++) nav_mask_dear(g_grid, g_driveMask, g_vstuck[i][0], g_vstuck[i][2], 3.5f);
     mask_changed();
 }
 
@@ -308,7 +312,7 @@ int navg_drive_line_ok(const float *a, const float *b)
 }
 
 /* ---- 1.6.6: the level's roads (roads.c reads them) ----
-   A line is trusted when, sampled every 2 m, at least 60 % of it (35 % for a line named like a road) runs over
+   A line is trusted when, sampled every 2 m, at least 45 % of it (60 % before 1.6.10) (35 % for a line named like a road) runs over
    drive-map ground within 6 m of its height. The drive nodes within 3.5 m of a trusted line become class 7: routes
    follow them (cost x0.35; only cells humans drove are cheaper) and string-pulling keeps to them. */
 static void roads_path(char *out, unsigned size) { rt_nav_cache_path(g_key, out, size); char *dot = strrchr(out, '.'); if (dot) snprintf(dot, size - (unsigned)(dot - out), ".roads"); }
@@ -333,7 +337,7 @@ static void roads_apply(void)
                 samples++; if (drive_node_near(x, y, z, 6.0f) >= 0) onGround++; }
         }
         l->onGround = samples ? (float)onGround / samples : 0;
-        l->accepted = l->onGround >= (l->named ? 0.35f : 0.6f);
+        l->accepted = l->onGround >= (l->named ? 0.35f : 0.45f);   /* 1.6.10: 45 % (was 60): Panama Canal's 50-56 % splines are its side roads; the stray ones sit near 0-15 % */
         if (!l->accepted) continue;
         accepted++; km += l->length / 1000.0f;
         for (int k = 1; k < l->n; k++) {
@@ -346,7 +350,7 @@ static void roads_apply(void)
                     int xx = cx + dx, zz = cz + dz; if (xx < 0 || zz < 0 || xx >= g->w || zz >= g->h) continue;
                     float cxw = g->x0 + xx * g->cell, czw = g->z0 + zz * g->cell; if (hypotf(cxw - x, czw - z) > 3.5f) continue;
                     for (int ly = 0; ly < NAV_LAYERS; ly++) { int node = (zz * g->w + xx) * NAV_LAYERS + ly;
-                        if (g_driveMask[node] >= 1 && g_driveMask[node] <= 4 && fabsf(g->height[node] - y) < 6.0f) { g_driveMask[node] = 7; marked++; } }
+                        if (g_driveMask[node] >= 1 && g_driveMask[node] <= 3 && fabsf(g->height[node] - y) < 6.0f) { g_driveMask[node] = 7; marked++; } }   /* 1.6.10: not class 4 - the ring beside a wall stays dear on a road too, or routes ran along the building */
                 }
             }
         }
@@ -379,17 +383,30 @@ int navg_path_vehicle(int owner, const float *from, const float *to, float *out,
     if (deferred) *deferred = 0;
     if (!navg_ready()) return 0;
     if (!ensure_drive_mask()) return 0;
-    if (g_dlabDirty || g_dlabGrid != g_grid) dlab_build();
     float a[3], b[3]; int la = -1;
     g_vehGap = 0; g_vehPartial = 0;
-    if (!drive_pick(from, 25, 6, -1, 1, a, &la) && !nav_drive_near(g_grid, g_driveMask, from[0], from[1], from[2], 25, a)) memcpy(a, from, 12);
-    if (la >= 0 && drive_pick(to, 260, 15, la, 0, b, NULL)) g_vehGap = hypotf(b[0] - to[0], b[2] - to[2]);
-    else if (!nav_drive_near(g_grid, g_driveMask, to[0], to[1], to[2], 60, b)) memcpy(b, to, 12);
+    /* 1.6.10: a request keeps its start and end. Every call snapped both again on the current drive map, and every change
+       to it (a hazard cut by another vehicle, a stuck spot, the cells a human drove - 15 times in one round) could move
+       them a little: the planner then threw the half-done search away and began again, and drivers "waited 60 s for the
+       planner". The drive areas were also relabelled (a pass over the whole map) on each of those calls. */
+    static struct { float from[3], to[3], a[3], b[3], gap; int valid; const NavGrid *g; } snap[128];
+    int si = owner >= 0 && owner < 128 ? owner : -1;
+    if (si >= 0 && snap[si].valid && snap[si].g == g_grid && hypotf(snap[si].from[0] - from[0], snap[si].from[2] - from[2]) < 3.0f &&
+        hypotf(snap[si].to[0] - to[0], snap[si].to[2] - to[2]) < 1.0f) {
+        memcpy(a, snap[si].a, 12); memcpy(b, snap[si].b, 12); g_vehGap = snap[si].gap;
+    } else {
+        { static double dlabAt; double tn = rt_now(); if (g_dlabGrid != g_grid || (g_dlabDirty && tn - dlabAt > 5)) { dlabAt = tn; dlab_build(); } }   /* 1.6.10: relabel at most every 5 s (a whole-map pass) */
+        if (!drive_pick(from, 25, 6, -1, 1, a, &la) && !nav_drive_near(g_grid, g_driveMask, from[0], from[1], from[2], 25, a)) memcpy(a, from, 12);
+        if (la >= 0 && drive_pick(to, 260, 15, la, 0, b, NULL)) g_vehGap = hypotf(b[0] - to[0], b[2] - to[2]);
+        else if (!nav_drive_near(g_grid, g_driveMask, to[0], to[1], to[2], 60, b)) memcpy(b, to, 12);
+        if (si >= 0) { memcpy(snap[si].from, from, 12); memcpy(snap[si].to, to, 12); memcpy(snap[si].a, a, 12); memcpy(snap[si].b, b, 12); snap[si].gap = g_vehGap; snap[si].valid = 1; snap[si].g = g_grid; }
+    }
     nav_set_path_owner(owner + 64);
     nav_set_path_mask(g_driveMask); nav_set_vehicle_width(1.8f);
     int n = nav_find_path(g_grid, nav_ray, a[0], a[1], a[2], b[0], b[1], b[2], out, maxPts);
     if (n > 0) g_vehPartial = nav_last_partial();
     if (!n && nav_last_deferred() && deferred) *deferred = 1;
+    else if (si >= 0) snap[si].valid = 0;   /* answered: the next request snaps on the map as it is then */
     nav_set_path_mask(NULL); nav_set_vehicle_width(1.5f);
     nav_set_path_owner(-1);
     return n;
@@ -437,8 +454,12 @@ void navg_learn_drive(const unsigned char *drive, int w, int h)
     for (int c = 0; c < w * h; c++) if (drive[c] >= 1)
         for (int l = 0; l < NAV_LAYERS; l++) { int node = c * NAV_LAYERS + l;
             if ((g_grid->flags[node] & NAV_WALKABLE) && !(g_grid->flags[node] & NAV_WATER)) {
+                /* 1.6.10: beside a wall it stays the dearest class (4) - a human threads a 5 m lane with his eyes, a bot that
+                   takes the lane as its cheapest road runs its route along the building and clips it with the hull */
+                int wallSide = g_driveMask[node] == 4 || g_driveMask[node] == 5 || (!g_driveMask[node] && g_grid->edges[node] != 0xff);
                 if (!g_driveMask[node]) added++;
-                if (g_driveMask[node] != 6) { g_driveMask[node] = 6; preferred++; }
+                if (wallSide) { if (g_driveMask[node] != 4 && g_driveMask[node] != 5) g_driveMask[node] = 4; }
+                else if (g_driveMask[node] != 6) { g_driveMask[node] = 6; preferred++; }
                 break;
             } }
     if (preferred) mask_changed();

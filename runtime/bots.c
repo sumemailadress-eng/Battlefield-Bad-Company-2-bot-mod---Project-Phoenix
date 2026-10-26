@@ -74,6 +74,7 @@ typedef struct Bot {
     int stopKilled, pathPartial; double stopExitAt, rejoinAt, rejoinPlanAt; double noRouteSince, hazAt, hazCutAt, routeWaitSince; float hazSpot[3], pathGap;
     /* 1.6.9 */
     float swimBank[3], swimBest; double swimBestAt, swimJumpAt; int swimHave; double islandAt; float island[3]; double islandUntil;
+    double boostLogAt, ppAt, pastEndSince; float ppScale, routeLeft; int pastEnd;   /* 1.6.10 */
     double heldUntil[BC2_EiaUndefined];
     float levels[BC2_EiaUndefined];
     int pulse[BC2_EiaUndefined];
@@ -1194,7 +1195,8 @@ static void veh_claim(uint32_t e, Bot *b, double now, double secs)
 }
 /* 1.6.8: a vehicle its crew left for want of a route (no drivable route, waited 25 s, no progress) is left alone for a
    while. 1.6.7 let the next bot - or the same one, "back to the ride we came in" - board it again 6 s later, wait 25 s
-   and get out: the vehicle parked at a freshly taken flag held its team there for the rest of the round. */
+   and get out: the vehicle parked at a freshly taken flag held its team there for the rest of the round. 1.6.10: 45 s
+   (was 90) - with routes kept and the planner no longer restarting, a vehicle left once is often drivable soon after. */
 static uint32_t g_vehBan[MAX_VEH]; static double g_vehBanUntil[MAX_VEH];
 static int veh_banned(uint32_t e, double now) { for (int i = 0; i < MAX_VEH; i++) if (g_vehBan[i] == e && now < g_vehBanUntil[i]) return 1; return 0; }
 static void veh_ban(uint32_t e, double now, double secs)
@@ -1345,7 +1347,10 @@ static void vehicle_consider(Bot *b, double now, int engaging)
         if (!(ground || (heli && g_cfg.helicopters))) continue;
         if (veh_banned(v->entity, now)) continue;   /* 1.6.8: no route from where it stands - walk the route instead */
         int mine = v->entity == b->lastVeh;
-        if (v->team && v->team != b->team && !mine) continue;   /* the other side's vehicles are theirs */
+        /* 1.6.10: the other side's vehicles are theirs - unless it is standing empty (abandoned): BC2 lets anyone take an
+           empty vehicle, and 1.6.9 bots walked past every enemy tank left by the road */
+        int empty = 1; for (int s2 = 0; s2 < v->seats && s2 < 8; s2++) if (eng_vehicle_occupant(v->entity, s2)) { empty = 0; break; }
+        if (v->team && v->team != b->team && !mine && !(empty && !heli && v->kind != VK_EMPLACE)) continue;
         /* a helicopter's gunner seat: any job, as long as a teammate flies it or is about to */
         if (heli && v->seats >= 2 && !eng_vehicle_occupant(v->entity, 1) && dist2d(b->pos, v->pos) < 60 && veh_on_ground(v->pos)) {
             uint32_t pil = eng_vehicle_occupant(v->entity, 0);
@@ -1353,7 +1358,11 @@ static void vehicle_consider(Bot *b, double now, int engaging)
                 float d = dist2d(b->pos, v->pos); if (d < bestD) { bestD = d; bestV = i; bestSeat = 1; bestRole = VR_PASSENGER; } continue;
             }
         }
-        float d = dist2d(b->pos, v->pos); if (d > (mine ? 120 : heli ? 80 : 60)) continue;   /* back to the ride we came in, from further away */
+        /* back to the ride we came in, from further away; 1.6.10: an empty vehicle (to drive) from up to 100 m, armour 140 m -
+           60 m left the vehicles abandoned out on the map standing all round */
+        float d = dist2d(b->pos, v->pos), reach = mine ? 120 : heli ? 80 : 60;
+        if (empty && !heli && g_cfg.vehicles >= 2) reach = fmaxf(reach, veh_armoured(v->name) ? 140.0f : 100.0f);
+        if (d > reach) continue;
         if (v->kind == VK_BOAT) {   /* (cached a few seconds per boat and flag: it costs rays) */
             static uint32_t be[16]; static int bf[16], bu[16]; static double bt[16]; int k = 0, slot = -1;
             for (; k < 16; k++) if (be[k] == v->entity && bf[k] == b->aFlag) break;
@@ -1374,7 +1383,10 @@ static void vehicle_consider(Bot *b, double now, int engaging)
                 if (distFlag < 80 || !veh_on_ground(v->pos)) continue;
             } else {
                 if (!navg_ready() && v->kind != VK_BOAT) continue;   /* 1.6.8: no drive map yet (first round on a map) - no route to drive */
-                if (distFlag < (veh_armoured(v->name) ? 80 : 110)) continue;
+                /* 1.6.10: 60 / 70 m (was 80 / 110): Panama Canal's flags are 94-166 m apart, so the vehicle that appears at a
+                   flag just taken was mostly left standing - the next flag was "too close" to be worth driving to */
+                if (distFlag < (veh_armoured(v->name) ? 60 : 70)) { if (g_cfg.verbose && d < 30 && now > b->pathFailLogAt) { b->pathFailLogAt = now + 30;
+                    rt_log("vehicles: %s leaves '%s' %.0f m away - its flag %c is only %.0f m off", b->name, v->name, d, 'A' + b->aFlag, distFlag); } continue; }
                 int drivers = 0; for (int k = 0; k < MAX_BOTS; k++) if (g_bots[k].used && g_bots[k].team == b->team && g_bots[k].vehRole == VR_DRIVER) drivers++;
                 if (drivers >= 5 || (!mine && !veh_armoured(v->name) && rt_randf() > 0.8f)) continue;   /* armour is always taken */
             }
@@ -2040,6 +2052,35 @@ static float veh_hazard(const VehicleInfo *vi, float heading, float bumper, floa
     }
     return best;
 }
+/* 1.6.10: vehicle routes are kept and reused - vehicles drive the same few trips (base to the first flags, flag to flag),
+   and a route planned once from a spot to a flag is good for the next vehicle there, without waiting for the planner.
+   A kept route is used only if every leg of it is still on the drive map (cheap, no rays); a hazard cut on it drops it. */
+#define VRC_N 48
+typedef struct { float from[3], pts[MAX_PATH_PTS * 3]; int n, flag, partial; float gap; double at; unsigned level; } VRoute;
+static VRoute g_vrc[VRC_N];
+static int vroute_find(const float *from, int flag, double now)
+{
+    int best = -1; float bd = 15.0f;
+    for (int i = 0; i < VRC_N; i++) { VRoute *r = &g_vrc[i];
+        if (!r->n || r->flag != flag || r->level != g_world.levelSerial || now - r->at > 600 || fabsf(r->from[1] - from[1]) > 4) continue;
+        float d = dist2d(r->from, from); if (d < bd) { bd = d; best = i; } }
+    if (best < 0) return -1;
+    VRoute *r = &g_vrc[best];
+    if (!navg_drive_line_ok(from, r->pts)) return -1;
+    for (int k = 1; k < r->n; k++) if (!navg_drive_line_ok(&r->pts[(k - 1) * 3], &r->pts[k * 3])) { r->n = 0; return -1; }
+    return best;
+}
+static void vroute_store(const float *from, int flag, const float *pts, int n, int partial, float gap, double now)
+{
+    if (n < 2 || partial) return;
+    int slot = 0; for (int i = 0; i < VRC_N; i++) {
+        if (g_vrc[i].n && g_vrc[i].flag == flag && dist2d(g_vrc[i].from, from) < 15.0f) { slot = i; break; }
+        if (g_vrc[i].at < g_vrc[slot].at) slot = i; }
+    VRoute *r = &g_vrc[slot]; memcpy(r->from, from, 12); memcpy(r->pts, pts, (size_t)n * 12); r->n = n; r->flag = flag; r->partial = partial;
+    r->gap = gap; r->at = now; r->level = g_world.levelSerial;
+}
+static void vroute_drop_near(const float *p) { for (int i = 0; i < VRC_N; i++) for (int k = 0; k < g_vrc[i].n; k++) if (dist2d(&g_vrc[i].pts[k * 3], p) < 6.0f) { g_vrc[i].n = 0; break; } }
+
 static int name_has(const char *n, const char *sub)
 {
     char u[64]; int i = 0; for (; n[i] && i < 63; i++) u[i] = (char)toupper((unsigned char)n[i]); u[i] = 0;
@@ -2135,6 +2176,9 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         }
         if (!driver) { if (inFor > 1.5) { vehicle_leave(b, now, "no driver"); return; } }
         else b->vehEnterUntil = 0;
+        /* 1.6.10: a bot driver that is getting somewhere (or waiting for its route) is trusted - a road that goes round, or
+           the planner, is not "the ride is not getting closer" (most passenger exits in the harness were this) */
+        { Bot *db = driver ? bot_of_player(driver) : NULL; if (db && db->vehRole == VR_DRIVER && now - db->vehProgressAt < 30 && inFor < 180) b->vehProgressAt = now; }
         if (now - b->vehProgressAt > 35 || inFor > 180) { vehicle_leave(b, now, "the ride is not getting closer"); return; }
         return;
     }
@@ -2185,12 +2229,12 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     }
     b->vehZoneAt = 0;
     /* the drivable route ends short of the flag (it is in a building, up stairs, off-road): park there and walk */
-    if (b->pathLen && !b->pathPartial && b->pathIdx >= b->pathLen - 1 && !b->pathPending && dist2d(vi.pos, &b->path[(b->pathLen - 1) * 3]) < 8 && distFlag < fmaxf(120, b->pathGap + 40)) {
+    if (b->pathLen && !b->pathPartial && b->pathIdx >= b->pathLen - 1 && !b->pathPending && dist2d(vi.pos, &b->path[(b->pathLen - 1) * 3]) < 8 && distFlag < 60) {
         veh_hold(b, calib_for(vi.data, 0)); if (!b->vehParkAt) b->vehParkAt = now + 2;
         if (now > b->vehParkAt) vehicle_leave(b, now, "end of the drivable route - on foot from here");
         return;
     }
-    if (now - b->vehProgressAt > 35 && vi.kind != VK_BOAT) { veh_ban(veh, now, 90); vehicle_leave(b, now, "no progress in 35 s"); return; }
+    if (now - b->vehProgressAt > 35 && vi.kind != VK_BOAT) { veh_ban(veh, now, 45); vehicle_leave(b, now, "no progress in 35 s"); return; }
     DriveCalib *c = calib_for(vi.data, 1);
     if (!c) { vehicle_leave(b, now, "calibration table full"); return; }
     if (!c->ok && !c->presetGround && (vi.kind == VK_GROUND || vi.kind == VK_BOAT)) {
@@ -2286,15 +2330,25 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
        that as "no drivable route" - and 1.6.8's 90 s skip then kept every vehicle parked for minutes after the grid was
        done. Get out without marking the vehicle; bots take it again once the map is ready. */
     if (!navg_ready()) { vehicle_leave(b, now, "the map is still being surveyed - no routes yet"); return; }
+    /* 1.6.10: a route kept from an earlier trip from here to this flag: drive it now (the planner refreshes it in 15 s) */
+    if (!b->pathLen && !b->pathPending) {
+        int k = vroute_find(vi.pos, f, now);
+        if (k >= 0) { VRoute *r = &g_vrc[k];
+            memcpy(b->path, vi.pos, 12); int n = r->n < MAX_PATH_PTS - 1 ? r->n : MAX_PATH_PTS - 1; memcpy(b->path + 3, r->pts, (size_t)n * 12);
+            b->pathLen = n + 1; b->pathIdx = 1; b->pathPartial = 0; b->pastEnd = 0; b->routeLeft = 1e9f; b->pathGap = r->gap; b->noRouteSince = 0; b->pathAt = now; memcpy(b->pathGoal, goal, 12); memcpy(b->pathFrom, vi.pos, 12);
+            if (g_cfg.verbose) rt_log("vehicles: %s takes the kept route to flag %c (%d points) - no wait for the planner", b->name, 'A' + f, b->pathLen);
+        }
+    }
     if (b->pathPending || !b->pathLen || now - b->pathAt > 15 || dist2d(b->pathGoal, goal) > 5) {
         if (!b->pathPending || dist2d(b->pathFrom, vi.pos) > 60) memcpy(b->pathFrom, vi.pos, 12);
         float out[MAX_PATH_PTS * 3]; int deferred = 0;
         int n = navg_ready() ? navg_path_vehicle((int)(b - g_bots), b->pathFrom, goal, out, MAX_PATH_PTS, &deferred) : 0;
         if (n > 0) {
+            vroute_store(b->pathFrom, f, out, n, navg_vehicle_partial(), navg_vehicle_gap(), now);   /* 1.6.10: for the next trip */
             /* the planner's points start at the first waypoint (up to 80 m away): the route line starts where the request did */
             int pre = n < MAX_PATH_PTS && dist2d(b->pathFrom, out) > 2.0f;
             if (pre) memcpy(b->path, b->pathFrom, 12);
-            memcpy(b->path + pre * 3, out, (size_t)n * 12); n += pre; b->pathLen = n; b->pathIdx = n > 1 ? 1 : 0; b->pathPending = 0;
+            memcpy(b->path + pre * 3, out, (size_t)n * 12); n += pre; b->pathLen = n; b->pathIdx = n > 1 ? 1 : 0; b->pathPending = 0; b->pastEnd = 0; b->routeLeft = 1e9f;
             b->pathPartial = navg_vehicle_partial(); b->pathGap = navg_vehicle_gap(); b->noRouteSince = 0;
 #ifdef PHX_HARNESS
             if (getenv("PATHDBG")) { char t[600]; int u = 0; for (int i = 0; i < n && u < 560; i++) u += snprintf(t + u, sizeof t - (size_t)u, " (%.0f,%.0f)", b->path[i * 3], b->path[i * 3 + 2]);
@@ -2317,8 +2371,9 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     if (!b->pathLen) {
         if (!b->routeWaitSince) b->routeWaitSince = now;
         veh_hold(b, c); b->vehProgressAt = now;
-        if (b->noRouteSince && now - b->noRouteSince > 8) { b->noRouteSince = 0; b->routeWaitSince = 0; veh_ban(veh, now, 90); vehicle_leave(b, now, "no drivable route to the flag"); return; }
-        if (now - b->routeWaitSince > 25) { b->routeWaitSince = 0; veh_ban(veh, now, 90); vehicle_leave(b, now, "waited 25 s for a route"); return; }
+        if (b->noRouteSince && now - b->noRouteSince > 8) { b->noRouteSince = 0; b->routeWaitSince = 0; veh_ban(veh, now, 45); vehicle_leave(b, now, "no drivable route to the flag"); return; }
+        /* 1.6.10: the planner still working on it is not "no route": wait up to 60 s, and leave the vehicle unmarked */
+        if (now - b->routeWaitSince > (b->pathPending ? 60 : 25)) { b->routeWaitSince = 0; if (!b->pathPending) veh_ban(veh, now, 45); vehicle_leave(b, now, b->pathPending ? "waited 60 s for the planner" : "waited 25 s for a route"); return; }
         if (!engaged) { b->yaw = yaw_from_heading(heading_to(vi.pos, goal)); b->pitch = 0; }
         return;
     }
@@ -2359,6 +2414,16 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
             if (d < best - 0.01f || (k > kBest && d < best + 0.5f)) { best = d; kBest = k; memcpy(proj, q, 12); }
         }
         b->pathIdx = kBest; offRoute = best;
+        /* 1.6.10: how much route is left, and whether the vehicle has rolled past its end - a tank at 10 m/s passed the
+           "within 8 m of the last point" check between two looks, turned round for the point now behind it, and drove
+           back and forth there ("driving like ..." on Panama Canal) */
+        {
+            float rem = dist2d(proj, &b->path[kBest * 3]);
+            for (int k = kBest + 1; k < b->pathLen; k++) rem += dist2d(&b->path[(k - 1) * 3], &b->path[k * 3]);
+            const float *pl = &b->path[(b->pathLen - 1) * 3], *pp = &b->path[(b->pathLen - 2) * 3];
+            b->routeLeft = rem;
+            b->pastEnd = kBest >= b->pathLen - 1 && (vi.pos[0] - pl[0]) * (pl[0] - pp[0]) + (vi.pos[2] - pl[2]) * (pl[2] - pp[2]) > 0;
+        }
         float La = fmaxf(6.0f, fminf(18.0f, 5.0f + speed * 0.9f)), walked = 0, cur[3]; memcpy(cur, proj, 12);
         float prevHd = heading_to(&b->path[(kBest - 1) * 3], &b->path[kBest * 3]);
         memcpy(target, &b->path[(b->pathLen - 1) * 3], 12);
@@ -2377,12 +2442,45 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         }
         for (int tries = 0; tries < 3 && !navg_drive_line_ok(proj, target); tries++)
             for (int j = 0; j < 3; j++) target[j] = proj[j] + (target[j] - proj[j]) * 0.5f;
+        /* 1.6.10: the whole body must clear the way to the aim point, not just its centre line. Aiming just past a corner
+           (or at a point the drive map allows) sent the vehicle diagonally across the bend: its centre passed, its front
+           corner caught the building and it stayed there. Every 0.2 s two rays from the front corners of the hull to the
+           aim point, offset by half the vehicle's width; blocked, the aim point is pulled back along the route (towards
+           the vehicle's own spot on it) until the body clears - the vehicle keeps to its line round the corner. */
+        if (now >= b->ppAt) {
+            b->ppAt = now + 0.2; b->ppScale = 1.0f;
+            int quad = name_has(vi.name, "QUAD") || name_has(vi.name, "ATV");
+            float hw = quad ? 0.8f : tracked ? 2.0f : 1.4f, fb = quad ? 0.9f : tracked ? 3.0f : 2.2f;
+            float rx = cosf(vehHeading), rz = -sinf(vehHeading), fx = sinf(vehHeading), fz = cosf(vehHeading);
+            for (int tries = 0; tries < 4; tries++, b->ppScale *= 0.5f) {
+                float t[3]; for (int j = 0; j < 3; j++) t[j] = proj[j] + (target[j] - proj[j]) * b->ppScale;
+                if (dist2d(vi.pos, t) < fb + 2.0f) break;   /* close in: nothing left to cut */
+                int blocked = 0;
+                for (int sd = -1; sd <= 1 && !blocked; sd += 2) {
+                    float a[3] = {vi.pos[0] + fx * fb + rx * hw * sd, vi.pos[1] + 0.9f, vi.pos[2] + fz * fb + rz * hw * sd};
+                    float e[3] = {t[0] + rx * hw * sd, t[1] + 0.9f, t[2] + rz * hw * sd}, h[3], n[3];
+                    if (eng_ray(a, e, h, n) && n[1] < 0.6f) blocked = 1;
+                }
+                if (!blocked) break;
+            }
+        }
+        if (b->ppScale < 0.99f) for (int j = 0; j < 3; j++) target[j] = proj[j] + (target[j] - proj[j]) * b->ppScale;
         if (offRoute > 5.0f) {   /* drifted off the line (an escape, a push, a bad turn): back to it first */
             float hd = heading_to(&b->path[(kBest - 1) * 3], &b->path[kBest * 3]);
             target[0] = proj[0] + sinf(hd) * 3.0f; target[1] = proj[1]; target[2] = proj[2] + cosf(hd) * 3.0f;
         }
         if (offRoute > 25.0f && now - b->pathAt > 3) { b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12); }   /* far off: a new route from here */
-        if (b->pathPartial && kBest >= b->pathLen - 1 && dist2d(vi.pos, &b->path[(b->pathLen - 1) * 3]) < 12 && now - b->pathAt > 2) { b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12); }
+        if (b->pathPartial && kBest >= b->pathLen - 1 && (dist2d(vi.pos, &b->path[(b->pathLen - 1) * 3]) < 12 || b->pastEnd) && now - b->pathAt > 2) { b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12); }
+        else if (b->pastEnd && now - b->pathAt > 2) { b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12); }   /* 1.6.10: rolled past the end: plan on from here, never back */
+        /* past the end: stop there and wait for the next route (the first 1.6.10 build drove straight on meanwhile - with a
+           route that ended short, 35 m off into nowhere); none in 12 s, the crew walks from here */
+        /* 1.6.10: never stop - keep driving towards the flag (10 m at a time, kept on the drive map) while the next route
+           is planned. Stopping and getting out after 12 s left vehicles abandoned all over the map. */
+        if (b->pastEnd) {
+            float hf = heading_to(vi.pos, goal);
+            target[0] = vi.pos[0] + sinf(hf) * 10; target[1] = vi.pos[1]; target[2] = vi.pos[2] + cosf(hf) * 10;
+            for (int tries = 0; tries < 3 && !navg_drive_line_ok(vi.pos, target); tries++) { hf = wrap_pi(hf + (tries & 1 ? -0.8f : 0.8f) * (tries + 1)); target[0] = vi.pos[0] + sinf(hf) * 10; target[2] = vi.pos[2] + cosf(hf) * 10; }
+        }
         /* how sharp the route gets 8-35 m ahead (for braking) */
         float along = 0, h0 = heading_to(vi.pos, target); const float *pv = proj;
         for (int k = kBest; k < b->pathLen && along < 35; k++) {
@@ -2397,15 +2495,35 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     if (now >= b->avoidAt) {
         b->avoidAt = now + 0.15;
         float L = fmaxf(7.0f, fminf(20.0f, speed * 1.2f + 6.0f)), clear[3];
+        /* 1.6.10: from the vehicle's own bumper - 3 m ahead of the centre suits a tank, but a quad is 2 m long: with a wall
+           1-2 m ahead the feeler started beyond it, read "clear" and the quad drove on into the wall at full throttle */
+        float bump = name_has(vi.name, "QUAD") || name_has(vi.name, "ATV") ? 1.2f : tracked ? 3.0f : 2.4f;
         for (int k = 0; k < 3; k++) {
             float hh = vehHeading + (k - 1) * 0.45f;
-            float a[3] = {vi.pos[0] + sinf(vehHeading) * 3.0f, vi.pos[1] + 1.2f, vi.pos[2] + cosf(vehHeading) * 3.0f}, e[3] = {a[0] + sinf(hh) * L, a[1], a[2] + cosf(hh) * L}, h[3], n[3];
+            float a[3] = {vi.pos[0] + sinf(vehHeading) * bump, vi.pos[1] + 1.0f, vi.pos[2] + cosf(vehHeading) * bump}, e[3] = {a[0] + sinf(hh) * L, a[1], a[2] + cosf(hh) * L}, h[3], n[3];
             clear[k] = L;
             if (eng_ray(a, e, h, n) && n[1] < 0.6f) clear[k] = dist2d(a, h);   /* walls, rocks, vehicles - not the slope of a hill */
         }
-        b->frontClear = clear[1]; clearL = clear[0]; clearR = clear[2];
+        /* 1.6.10: a feeler that hit nothing is clear, not "clear for L metres". At low speed L is 7-8 m, under the 8 m
+           "something close in front" limit, so a slow vehicle always believed it was blocked, kept the throttle at 0.4 and
+           never got faster (Panama Canal: half of all driving samples under 1 m/s, "clear 7.0" in most of them) */
+        /* 1.6.10: and the vehicle's own width - two rays straight ahead from the corners of the bumper. The three fanned
+           feelers start at the middle of the bumper, so a tree trunk in front of one side of the hull was between them:
+           a tank drove straight into a tree it had all the room to miss and stopped there. */
+        float hwF = name_has(vi.name, "QUAD") || name_has(vi.name, "ATV") ? 0.8f : tracked ? 1.9f : 1.3f, side2[2] = {L, L};
+        for (int sd = 0; sd < 2; sd++) {
+            float s = sd ? 1.0f : -1.0f, rx = cosf(vehHeading) * s, rz = -sinf(vehHeading) * s;   /* sd 1: the +heading side (as k=2) */
+            float a[3] = {vi.pos[0] + sinf(vehHeading) * bump + rx * hwF, vi.pos[1] + 1.0f, vi.pos[2] + cosf(vehHeading) * bump + rz * hwF};
+            float e[3] = {a[0] + sinf(vehHeading) * L, a[1], a[2] + cosf(vehHeading) * L}, h[3], n[3];
+            if (eng_ray(a, e, h, n) && n[1] < 0.6f) side2[sd] = dist2d(a, h);
+        }
+        float cMin = fminf(clear[1], fminf(side2[0], side2[1]));
+        b->frontClear = cMin < L ? cMin : 99.0f; clearL = clear[0]; clearR = clear[2];
         float bias = 0;
-        if (clear[1] < L) {
+        if (side2[0] < L || side2[1] < L) {   /* something in front of one side of the hull: steer the other way */
+            float side = side2[0] < side2[1] ? 1.0f : -1.0f;
+            bias = side * (0.35f + 0.5f * (1.0f - cMin / L));
+        } else if (clear[1] < L) {
             float side = clear[0] > clear[2] ? -1.0f : 1.0f;   /* k=0 is towards -heading */
             bias = side * (0.35f + 0.5f * (1.0f - clear[1] / L));
         }
@@ -2422,7 +2540,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
             b->frontClear = fminf(b->frontClear, hz);
             /* on the route itself and close: cut the spot from the drive map and plan round it before the bumper is there */
             if (hz < 7.0f && fabsf(wrap_pi(heading_to(vi.pos, target) - vehHeading)) < 0.45f && now > b->hazCutAt + 4 && dist2d(where, b->hazSpot) > 2.0f) {
-                int cut = navg_vehicle_block(where, 1.3f);
+                int cut = navg_vehicle_block(where, 1.3f); vroute_drop_near(where);
                 /* 1.6.9: follow the obstacle sideways - a row of barriers or a divider across the road is cut as a line, not
                    as one cell the next route then grazes (the harness: the same barrier hit again and again) */
                 if (kind == 1) for (int sd = -1; sd <= 1; sd += 2) for (int k = 1; k <= 4; k++) {
@@ -2456,11 +2574,21 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     else if (bend > 0.6f && speed > 12) thr = fminf(thr, 0.45f);
     if (fabsf(err) > 0.9f && fwdSpeed > 10) thr = -0.5f;                 /* too fast for the turn: brake (throttle against the motion) */
     if (!escaping && b->frontClear < 8) { if (fwdSpeed > 5) thr = -0.6f; else thr = fminf(thr, 0.4f); }   /* something close in front: slow, steer round it */
-    if (distFlag < 80) thr = fminf(thr, 0.6f);
-    if (offRoute > 5.0f) thr = fminf(thr, 0.5f);   /* 1.6.6: back onto the route slowly */
-    if (engaged) thr = fminf(thr, 0.55f);   /* fighting: slow down so the gun settles */
+    if (distFlag < 50) thr = fminf(thr, 0.75f);   /* 1.6.10: 50 m / 0.75 (was 80 m / 0.6: half throttle is a crawl in BC2) */
+    /* 1.6.10: run out of route gently - slower in the last 30 m, braking from speed in the last 15 m (the flag zone or
+       the end of a route that stops short of it), instead of arriving at 10 m/s and overshooting */
+    if (b->pathLen >= 2 && !b->pastEnd && !escaping && !b->pathPartial && b->pathGap < 25) {   /* only a route that really ends at the flag */
+        if (b->routeLeft < 30) thr = fminf(thr, b->routeLeft < 12 ? 0.5f : 0.75f);
+        if (b->routeLeft < 15 && fwdSpeed > 9) thr = -0.5f;
+    }
+    if (offRoute > 5.0f) thr = fminf(thr, 0.7f);   /* 1.6.6: back onto the route steadily (1.6.10: 0.7, was 0.5) */
+    if (engaged) thr = fminf(thr, 0.75f);   /* fighting: ease off so the gun settles (1.6.10: 0.75, was 0.55) */
     if (escaping && now > b->escDriveUntil && fabsf(err) < 0.35f) b->escDriveUntil = now + 2.5;   /* lined up: drive out */
-    if (escaping && fabsf(err) >= 0.35f && now > b->escDriveUntil) thr = tracked ? 0 : 0.5f;
+    /* 1.6.10: a wheeled vehicle not yet facing the way out turns by reversing (the wheel the other way swings the nose
+       round) - 1.6.9 turned it with the throttle on, which against a wall only pushes the nose into it */
+    int escTurnBack = 0;
+    if (escaping && fabsf(err) >= 0.35f && now > b->escDriveUntil) { if (tracked) thr = 0; else { thr = -0.6f; escTurnBack = 1; } }
+    if (!tracked && !escaping && ((b->frontClear < 2.5f && fabsf(err) > 0.6f) || (b->frontClear < 4.0f && fabsf(err) > 0.9f))) { thr = -0.6f; escTurnBack = 1; }   /* nose at a wall, facing wrong: back round */
     if (escaping && now < b->escDriveUntil) { thr = 0.8f; b->escUntil = fmax(b->escUntil, b->escDriveUntil); }
     /* stuck: pushing without moving for 3 s. 1.4 backed up 0.6 s and drove at the same wall again, every 2.5 s - "forward
        back forward back" for half a minute. Now: find the freest heading (rays round the front half); a tank pivots onto
@@ -2478,13 +2606,16 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
             b->stuckTime = 0;
             if (dist2d(vi.pos, b->revSpot) > 15) { b->revCount = 0; memcpy(b->revSpot, vi.pos, 12); }
             b->revCount++; b->unpinTries++;
-            float best = vehHeading + PI, bestClear = -1;
-            for (int k = -4; k <= 4; k++) {
-                float hh = vehHeading + k * 0.45f, L = 14;
-                float a[3] = {vi.pos[0], vi.pos[1] + 1.2f, vi.pos[2]}, e[3] = {a[0] + sinf(hh) * L, a[1], a[2] + cosf(hh) * L}, h[3], n[3];
+            float best = vehHeading + PI, bestClear = -1, bestScore = -1e9f;
+            /* 1.6.10: all round, and towards the route - 1.6.9 looked only across the front half and took the freest
+               heading whatever the route wanted, so a quad against a wall kept choosing another heading into the wall */
+            for (int k = -6; k <= 6; k++) {
+                float hh = vehHeading + k * 0.5f, L = 14, r0 = 1.0f;
+                float a[3] = {vi.pos[0] + sinf(hh) * r0, vi.pos[1] + 1.0f, vi.pos[2] + cosf(hh) * r0}, e[3] = {a[0] + sinf(hh) * L, a[1], a[2] + cosf(hh) * L}, h[3], n[3];
                 float cl = (eng_ray(a, e, h, n) && n[1] < 0.6f) ? dist2d(a, h) : L;
-                cl -= fabsf((float)k) * 0.4f + (k == 0 ? 6 : 0);   /* not straight on again; prefer small turns */
-                if (cl > bestClear) { bestClear = cl; best = hh; }
+                float sc = cl + 5.0f * cosf(wrap_pi(hh - want)) - (k == 0 ? 6 : 0);   /* not straight on again */
+                if (cl >= 4.0f && sc > bestScore) { bestScore = sc; bestClear = cl; best = hh; }
+                else if (bestScore < -1e8f && cl > bestClear) { bestClear = cl; best = hh; }
             }
             b->escHeading = wrap_pi(best); b->escUntil = now + 6.0; b->escDriveUntil = 0;
             if (!tracked && b->frontClear < 5) b->reverseUntil = now + 1.0;   /* wheels: back off first, nose swinging towards the way out */
@@ -2498,7 +2629,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
             }
             if (b->revCount == 2) {
                 float ahead[3] = {vi.pos[0] + sinf(vehHeading) * 5, vi.pos[1], vi.pos[2] + cosf(vehHeading) * 5};
-                int n = navg_vehicle_block(ahead, 3.5f);
+                int n = navg_vehicle_block(ahead, 3.5f); vroute_drop_near(ahead);
                 learn_vehicle_stuck(ahead);   /* 1.6.5: kept for the map, cut every round */
                 rt_log("vehicles: %s stuck in '%s' at (%.0f, %.0f) - blocked %d drive cell(s) there, new route", b->name, vi.name, ahead[0], ahead[2], n);
                 b->pathAt = 0; b->pathLen = 0;
@@ -2511,8 +2642,19 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         thr = -0.7f; float e2 = wrap_pi(b->escHeading - vehHeading);
         steerCmd = -fmaxf(-1, fminf(1, e2 * 2.0f)) * c->steerSign;   /* reversing: the wheel the other way swings the nose towards the way out */
     }
-    if (thr < 0 && fwdSpeed < -3.0f && now >= b->reverseUntil) thr = 0;   /* never keep reversing by accident */
+    if (escTurnBack && now >= b->reverseUntil) steerCmd = -fmaxf(-1, fminf(1, err * 2.0f)) * c->steerSign;   /* backing round */
+    if (thr < 0 && fwdSpeed < -3.0f && now >= b->reverseUntil && !escTurnBack) thr = 0;   /* never keep reversing by accident */
+    if (escTurnBack && fwdSpeed < -4.0f) thr = 0;   /* (backing round slowly) */
     b->levels[BC2_EiaThrottle] = thr; b->levels[c->steerAction] = steerCmd; b->levels[BC2_EiaBrake] = 0;
+    /* 1.6.10: boost (Sprint, the Shift key) going uphill - when the vehicle points up more than ~4 degrees, or the route
+       climbs 1.5 m or more over the next 25 m, with the throttle on and nothing close in front */
+    {
+        float pitchUp = vi.fwd[1] * (float)c->fwdSign, climb = 0, along = 0; const float *pv = vi.pos;
+        for (int k = b->pathIdx; k < b->pathLen && along < 25; k++) { along += dist2d(pv, &b->path[k * 3]); pv = &b->path[k * 3]; if (pv[1] - vi.pos[1] > climb) climb = pv[1] - vi.pos[1]; }
+        int boost = thr > 0.5f && !escaping && now >= b->reverseUntil && b->frontClear > 8 && (pitchUp > 0.07f || climb > 1.5f);
+        b->levels[BC2_EiaSprint] = boost ? 1.0f : 0.0f;
+        if (boost && g_cfg.verbose && now > b->boostLogAt) { b->boostLogAt = now + 20; rt_log("vehicles: %s boosts '%s' uphill (pitch %.2f, route climbs %.1f m in 25 m)", b->name, vi.name, pitchUp, climb); }
+    }
     b->pvPrevThr = thr;
     if (!engaged && !veh_test_running(veh, b)) { b->yaw = yaw_from_heading(want); b->pitch = 0; }
 
@@ -2593,6 +2735,15 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
     const float *dest = b->haveGoal ? b->goal : NULL;
     float destBuf[3]; int holdHere = 0, atOverwatch = 0;
     if (b->owOn && (now > b->owUntil || b->aFlag < 0)) { b->owOn = 0; b->owNext = now + 45; }
+    /* 1.6.10: snipers go back up now and then - 1.6.9 only picked a high spot (a roof, an upper floor, a ridge that sees the
+       flag from 35-125 m) when the bot got a new job, so most recons fought at ground level for the whole round */
+    if (b->cls == CLS_RECON && !b->owOn && !b->vehRole && b->aFlag >= 0 && now > b->owNext) {
+        b->owNext = now + randr(40, 80);
+        if (rt_randf() < 0.5f && overwatch_pick(b, b->aFlag, 0, now)) {
+            b->pathLen = 0; b->pathAt = 0;
+            if (g_cfg.verbose) rt_log("bot %s: recon heads for high ground at (%.0f, %.0f, %.0f) over flag %c", b->name, b->owSpot[0], b->owSpot[1], b->owSpot[2], 'A' + b->aFlag);
+        }
+    }
     if (b->owOn) { dest = b->owSpot; if (dist2d(b->pos, b->owSpot) < 1.6f && fabsf(b->pos[1] - b->owSpot[1]) < 2.0f) { holdHere = 1; atOverwatch = 1;
         if (!b->owCounted) { b->owCounted = 1; learn_spot_result(b->owSpot, 1, 0, 0); } } }
     else if (b->viaOn && b->aFlag >= 0 && b->aFlag < g_world.cpCount) {
@@ -2968,7 +3119,20 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
 
     /* combat */
     if (engaging && !(b->atOn && ((b->hasAT && b->rockets > 0) || b->atGL))) {
-        if (now > b->strafeUntil) { b->strafeUntil = now + randr(0.6f, 1.6f); b->strafe = tdist < 50 ? (rt_randf() < 0.5f ? -1.0f : 1.0f) * randr(0.4f, 1.0f) : 0; }
+        if (now > b->strafeUntil) {
+            b->strafeUntil = now + randr(0.6f, 1.6f); b->strafe = tdist < 50 ? (rt_randf() < 0.5f ? -1.0f : 1.0f) * randr(0.4f, 1.0f) : 0;
+            /* 1.6.10: strafe along the route, not away from it - more than 2.5 m off the current leg, the side-step goes back
+               towards it; 1.5 m off, never further away (strafe +1 moves to the left of where the bot faces) */
+            if (b->pathLen && b->pathIdx < b->pathLen) {
+                const float *a = b->pathIdx > 0 ? &b->path[(b->pathIdx - 1) * 3] : b->pathFrom, *c2 = &b->path[b->pathIdx * 3];
+                float vx = c2[0] - a[0], vz = c2[2] - a[2], L2 = vx * vx + vz * vz, u = L2 > 1e-4f ? ((b->pos[0] - a[0]) * vx + (b->pos[2] - a[2]) * vz) / L2 : 1;
+                u = u < 0 ? 0 : u > 1 ? 1 : u;
+                float px = a[0] + vx * u - b->pos[0], pz = a[2] + vz * u - b->pos[2], off = hypotf(px, pz), hf = heading_from_yaw(b->yaw);
+                float toLine = -px * cosf(hf) + pz * sinf(hf);   /* > 0: the route line is to the left */
+                if (off > 2.5f) b->strafe = (toLine > 0 ? 1.0f : -1.0f) * 0.8f;
+                else if (off > 1.5f && b->strafe * toLine < 0) b->strafe = -b->strafe;
+            }
+        }
         if (!moving) b->levels[BC2_EiaStrafe] = b->strafe;
         b->levels[BC2_EiaSprint] = 0;
         int zoom = b->cls == CLS_RECON ? tdist > 12 : tdist > 25;
@@ -3165,6 +3329,9 @@ static void bot_died(Bot *b, double now)
     if (b->lspot >= 0) b->lspot = -1;
     if (g_turOwner == (int)(b - g_bots)) turret_release(b);
 }
+/* 1.6.10: time spent in bot thinking, vehicle driving and the soldier movement step (seconds, since the last read) */
+double g_perfBots[3];
+void bots_perf(double *out) { memcpy(out, g_perfBots, sizeof g_perfBots); memset(g_perfBots, 0, sizeof g_perfBots); }
 void bots_tick(double now, float dt)
 {
     if (g_stopping || !g_world.obsReady || !g_world.manager) return;
@@ -3277,8 +3444,8 @@ void bots_tick(double now, float dt)
                already put back on foot tried to leave a BMD-3 for minutes) */
             if (veh) {
                 b->lastSeenAlive = now;
-                vehicle_brain(b, now, dt, veh);
-                push_input(b, dt, 0);   /* vehicle controls; no soldier step or aiming */
+                { double tv0 = rt_now(); vehicle_brain(b, now, dt, veh); g_perfBots[1] += rt_now() - tv0; }
+                { double tp0 = rt_now(); push_input(b, dt, 0); g_perfBots[2] += rt_now() - tp0; }   /* vehicle controls; no soldier step or aiming */
                 break;
             }
             if (b->vehSince) { b->vehRole = VR_NONE; b->vehicle = 0; b->vehSince = 0; if (b->vehCheckAt < now + 6) b->vehCheckAt = now + 6; b->pathLen = 0; }   /* out of the vehicle */
@@ -3295,7 +3462,7 @@ void bots_tick(double now, float dt)
                 break;
             }
             b->soldier = self->controllable; b->lastSeenAlive = now;
-            brain(b, now, dt, self);
+            { double tb0 = rt_now(); brain(b, now, dt, self); g_perfBots[0] += rt_now() - tb0; }
             if (b->redeploy) {
                 b->redeploy = 0;
                 const char *what = now - b->frozenSince > 900 ? "stuck in the air" : "pinned in place";
@@ -3314,7 +3481,7 @@ void bots_tick(double now, float dt)
                 b->state = BS_WAIT; b->stateSince = now; b->nextAt = now + 1.0; b->haveGoal = 0; b->goalCp = -1; b->pathLen = 0; b->target = 0;
                 break;
             }
-            push_input(b, dt, b->soldier);
+            { double tp0 = rt_now(); push_input(b, dt, b->soldier); g_perfBots[2] += rt_now() - tp0; }
             break;
         default: break;
         }

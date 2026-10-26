@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.6.9** (release 1.3). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.6.10** (release 1.4). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -38,6 +38,9 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 - **Always on a route**: soldiers plan routes to every goal (a flag, an M-COM, a teammate) at any distance unless the
   straight line is already clear, and get back onto their route after a fight, a side-step or a push - re-planning
   from where they stand when the old route is out of reach.
+- In a fight, bots strafe along their route rather than away from it (1.6.10).
+- **Snipers take high ground**: recon bots regularly climb to a roof, an upper floor or a ridge that sees their flag from
+  35-125 m and pick off enemies from there (1.6.10).
 - Recovery when stuck: jump, crouch, knife through fences and doors, side-step or detour. A bot that is truly pinned is
   killed cleanly and respawns.
 
@@ -67,9 +70,13 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   slow down for bends.
 - **Hazard probes** (1.6.6): rays ahead of the bumper detect barrels, road blockers, stairs, steps and drops. The spot is
   cut from the map, along the whole line of a barrier (1.6.9), and the vehicle stops and re-routes before it hits anything.
+- **Route reuse** (1.6.10): vehicle routes go first in the planner, and a route planned once from a spot to a flag is
+  kept and reused by the next vehicle there, so drivers set off at once.
 - **Crews** (1.6.8): when the driver gets out, a passenger moves over and drives on, or the crew gets out at once.
 - When a vehicle is boxed in, it backs out the way it came. Spots where vehicles got stuck are remembered across rounds.
-- **Your driving teaches them**: cells you drive are preferred routes. You can also **draw routes** for vehicles in the
+- **Boost uphill** (1.6.10): drivers hold Sprint (Shift) where the vehicle or the route climbs.
+- **Your driving teaches them**: cells you drive are preferred routes for every bot driver, whichever team you or they
+  are on, and they're kept in the map's `.learn` file. You can also **draw routes** for vehicles in the
   learning map.
 
 ### Tools

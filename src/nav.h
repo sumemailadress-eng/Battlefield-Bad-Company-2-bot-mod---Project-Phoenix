@@ -56,7 +56,11 @@ const char *nav_last_error(void);
 int nav_reach(const NavGrid *g, float x, float y, float z, float *nodePos);
 // Re-probes the ground of the cells in [x0..x1] x [z0..z1] with rays starting at fromY (below a bridge deck or roof
 // whose layers used up the cell's surfaces), adds the ground it finds and re-links the area. Returns nodes added.
-int nav_reprobe_area(NavGrid *g, NavRayFn ray, float x0, float z0, float x1, float z1, float fromY);   // why the last nav_find_path failed
+int nav_reprobe_area(NavGrid *g, NavRayFn ray, float x0, float z0, float x1, float z1, float fromY);
+// 1.6.10: the same, a little per tick (begin once, run each tick with a time budget until it returns 1)
+typedef struct NavReprobe { int ax, az, bx, bz, phase, cur, added, active; float fromY; } NavReprobe;
+int nav_reprobe_begin(const NavGrid *g, float x0, float z0, float x1, float z1, float fromY, NavReprobe *r);
+int nav_reprobe_run(NavGrid *g, NavRayFn ray, NavReprobe *r, double maxMs);   // why the last nav_find_path failed
 int nav_find_path(const NavGrid *g, NavRayFn ray, float sx, float sy, float sz, float tx, float ty, float tz, float *out, int maxPts);
 // Bot routes are queued by owner and resume within a shared allowance each tick.
 // Owner -1 selects synchronous console diagnostics.
@@ -92,6 +96,7 @@ int nav_mask_restore(const NavGrid *g, unsigned char *mask, const unsigned char 
 void nav_debug_edge(const NavGrid *g, NavRayFn ray, float x, float y, float z, int d, char *out, int outSize);
 int nav_floors_at(const NavGrid *g, float x, float y, float z, float *heights, int max);
 int nav_mask_block(const NavGrid *g, unsigned char *mask, float x, float z, float radius);
+int nav_mask_dear(const NavGrid *g, unsigned char *mask, float x, float z, float radius);   // 1.6.10: make dear (class 5) instead of cutting
 void nav_node_pos(const NavGrid *g, int node, float *out);   // world position of a node
 // Re-checks the grid's staircase links (rises of 0.9-1.6 m) with the strict rule - real stairs show intermediate heights,
 // a wall face does not - a few thousand rays per call. Returns 1 when the pass is complete (*removed = links dropped).

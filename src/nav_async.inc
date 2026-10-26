@@ -371,13 +371,20 @@ void nav_process_paths(double maxMs)
     for(int k=0;k<NAV_PATH_OWNERS;k++)if(g_requests[k].state && begin-g_requests[k].lastUsed>5000.0)request_clear(k);
     while(now_ms()<deadline){
         if(g_activeRequest<0){
-            for(int k=0;k<NAV_PATH_OWNERS;k++){
+            /* 1.6.10: vehicle routes first - a driver sits still until it has one, and behind 30 soldiers' requests at
+               1.5 ms a tick it often waited longer than its 25 s (11 of 18 drives in one Panama Canal round) */
+            for(int k=0;k<NAV_PATH_OWNERS && g_activeRequest<0;k++){
                 int owner=(g_nextRequest+k)%NAV_PATH_OWNERS;
-                if(g_requests[owner].state==1){g_activeRequest=owner;g_nextRequest=(owner+1)%NAV_PATH_OWNERS;g_requests[owner].state=2;break;}
+                if(g_requests[owner].state==1 && g_requests[owner].mask){g_activeRequest=owner;g_requests[owner].state=2;}
+            }
+            for(int k=0;k<NAV_PATH_OWNERS && g_activeRequest<0;k++){
+                int owner=(g_nextRequest+k)%NAV_PATH_OWNERS;
+                if(g_requests[owner].state==1){g_activeRequest=owner;g_nextRequest=(owner+1)%NAV_PATH_OWNERS;g_requests[owner].state=2;}
             }
             if(g_activeRequest<0)break;
         }
         NavRequest *q=&g_requests[g_activeRequest];
+        if(q->mask && deadline<begin+2.0)deadline=begin+2.0;   /* and 2 ms a tick while one runs (3 ms left the server no spare time) */
         if(q->serial!=q->grid->serial){request_clear(g_activeRequest);continue;}
         const unsigned char *saved=g_pathMask;int longSaved=g_longLegs;float widthSaved=g_vehicleWidth,avoidSaved[4];memcpy(avoidSaved,g_vehicleAvoid,sizeof avoidSaved);
         g_pathMask=q->mask;g_longLegs=q->longLegs;g_vehicleWidth=q->vehicleWidth;memcpy(g_vehicleAvoid,q->vehicleAvoid,sizeof g_vehicleAvoid);

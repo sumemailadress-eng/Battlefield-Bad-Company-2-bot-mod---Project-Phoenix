@@ -21,6 +21,7 @@ static LARGE_INTEGER g_freq, g_t0;
 static double g_lastTick, g_nextStatus;
 static HANDLE g_frozen[512]; static unsigned g_frozenCount;
 static uint32_t g_rng = 0x9e3779b9u;
+static unsigned g_raysAtStatus;   /* 1.6.10: rays counted at the last perf line */
 static CRITICAL_SECTION g_logLock;
 
 uint32_t rt_rand(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5; return g_rng; }
@@ -219,11 +220,29 @@ static void after_update(void *context, uint32_t manager, float dt, uint32_t thr
         InterlockedExchange(&g_stopped, 1);
         return;
     }
+    /* 1.6.10: what Phoenix costs the server per tick - average and worst since the last status line, by part */
+    static double tSum[3], tMax[3], tAll; static unsigned tN;
+    double t0 = rt_now();
     world_tick(now);
     capture_human_kit_flags();
+    double t1 = rt_now();
     navg_tick(now);
+    double t2 = rt_now();
     bots_tick(now, dt);
-    if (now >= g_nextStatus) { g_nextStatus = now + g_cfg.logEvery; bots_status(); FlushFileBuffers(g_logFile); }
+    double t3 = rt_now(), part[3] = {t1 - t0, t2 - t1, t3 - t2};
+    for (int k = 0; k < 3; k++) { tSum[k] += part[k]; if (part[k] > tMax[k]) tMax[k] = part[k]; }
+    if (t3 - t0 > tAll) tAll = t3 - t0;
+    tN++;
+    if (now >= g_nextStatus) {
+        g_nextStatus = now + g_cfg.logEvery; bots_status();
+        double bp[3]; bots_perf(bp);
+        if (tN) rt_log("perf: Phoenix per server tick (%u ticks): world %.2f ms (worst %.1f), navigation %.2f (worst %.1f), bots %.2f (worst %.1f) [thinking %.2f, driving %.2f, movement step %.2f]; slowest tick %.1f ms; rays %.0f a tick",
+                       tN, tSum[0] * 1000 / tN, tMax[0] * 1000, tSum[1] * 1000 / tN, tMax[1] * 1000, tSum[2] * 1000 / tN, tMax[2] * 1000,
+                       bp[0] * 1000 / tN, bp[1] * 1000 / tN, bp[2] * 1000 / tN, tAll * 1000, (double)(eng_ray_count() - g_raysAtStatus) / tN);
+        g_raysAtStatus = eng_ray_count();
+        memset(tSum, 0, sizeof tSum); memset(tMax, 0, sizeof tMax); tAll = 0; tN = 0;
+        FlushFileBuffers(g_logFile);
+    }
 }
 
 /* ---------------- patch guard (freeze other threads while writing the 6-byte detour) ---------------- */
