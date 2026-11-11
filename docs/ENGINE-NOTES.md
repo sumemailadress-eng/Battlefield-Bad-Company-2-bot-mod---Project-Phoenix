@@ -301,3 +301,21 @@ Vehicles per map (Conquest), from StrategyWiki's BC2 vehicle and map pages:
   - TerrainSplineDecal: Name `+16`, Material (TerrainDecalMaterial, Asset Name `+12`) `+28`, Enable `+33`, Spline `+40`.
 - Not yet confirmed live: whether these instances exist in the dedicated server's memory and whether the points are in
   world space. Phoenix checks each line against the drive map before using it and logs the result (`roads:`).
+
+## Route network (1.7.0) - BC2-specific notes
+
+- The route network (`runtime/routenet.c`) is built only from Phoenix's own BC2 data: the navigation grid (6 surfaces
+  per cell, `navg_path` with the async planner owner 120 reserved for route building), `g_world.cps` (flags, or the
+  M-COMs of the active Rush stage) and the team spawn points Phoenix observes. No BF3 / BF4 / Hardline engine offsets or
+  types are involved; the BF4 / Hardline mods only supplied the idea of strict routes and the 3D page.
+- Map key: `bc2v2_<cq|sp><objectives>_<hash>` from `navg_key()`. The same key names `.nav`, `.learn`, `.froutes`,
+  `.vroutes`, `.routes` (LearnViewer lines), `.objectives`, `.vehicles` and `.roads` in the shared navcache (`PhoenixNavcache\`).
+- Foot route lines: `route <from> <to> <len> <n> x,y,z ...` (up to 256 points). Planned routes have labels starting `p-`
+  and are dropped after 3 stuck give-ups on them; drawn routes are kept.
+- Vehicle route lines: `route ax ay az bx by bz n x y z ...`. LearnViewer's `.routes` lines ("route", then "x z" per
+  point) are read as vehicle routes too, with heights from the top walkable surface of the cell (`navg_ground_at`).
+- Files are re-read when their modification time changes (checked every 5 s); objectives / vehicles / live.txt are
+  written every 30 s.
+- Driving on a saved route ("strict"): look-ahead 5-11 m, steer back from 2 m off the line, throttle limited from 3 m
+  off; no re-plan when far off and a hazard cut drops the strict flag (the driver stops, goes round, and the next request can pick the route again).
+  At the route's end the strict flag is cleared and the normal vehicle planner takes over.

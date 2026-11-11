@@ -295,6 +295,13 @@ static int drive_pick(const float *p, float maxR, float maxDy, int lab, int avoi
     return 1;
 }
 float navg_vehicle_gap(void) { return g_vehGap; }
+float navg_ground_at(float x, float z)
+{
+    if (!navg_ready()) return NAN;
+    int c = nav_cell_index(g_grid, x, z); if (c < 0) return NAN;
+    for (int l = 0; l < NAV_LAYERS; l++) { int node = c * NAV_LAYERS + l; if (g_grid->flags[node] & NAV_WALKABLE) return g_grid->height[node]; }
+    return NAN;
+}
 int navg_vehicle_partial(void) { return g_vehPartial; }
 /* 1 = the straight line a-b stays on the drive map (every 1.25 m a drive node within 3.5 m of the line's height) */
 int navg_drive_line_ok(const float *a, const float *b)

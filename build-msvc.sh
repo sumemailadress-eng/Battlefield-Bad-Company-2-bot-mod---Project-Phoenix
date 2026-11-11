@@ -12,7 +12,7 @@ mkdir -p bin
   -Wno-missing-field-initializers -Wno-misleading-indentation -D_WIN32_WINNT=0x0601 -D_CRT_SECURE_NO_WARNINGS -Isrc -Iruntime -msse2 -mfpmath=sse \
   -shared -fuse-ld=lld -Wl,/EXPORT:PhoenixStart=_PhoenixStart@4 -Wl,/EXPORT:PhoenixStop=_PhoenixStop@4 \
   runtime/phoenix_module.c runtime/engine.c runtime/world.c runtime/bots.c runtime/learn.c runtime/indoor.c runtime/turret.c runtime/navglue.c \
-  runtime/roads.c runtime/win_common.c src/bc2_observe.c src/bc2_tick_hook.c src/nav.c -lbcrypt -luser32 -lkernel32 -ladvapi32 -o bin/PhoenixBC2.dll
+  runtime/roads.c runtime/routenet.c runtime/win_common.c src/bc2_observe.c src/bc2_tick_hook.c src/nav.c -lbcrypt -luser32 -lkernel32 -ladvapi32 -o bin/PhoenixBC2.dll
 rm -f bin/PhoenixBC2.lib bin/PhoenixBC2.exp
 echo "built bin/PhoenixBC2.dll"
 # the launcher (Windows GUI); copy it next to Start-Bots.bat

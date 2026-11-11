@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.6.10** (release 1.4). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.7.0** (release 1.5). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -41,6 +41,9 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 - In a fight, bots strafe along their route rather than away from it (1.6.10).
 - **Snipers take high ground**: recon bots regularly climb to a roof, an upper floor or a ridge that sees their flag from
   35-125 m and pick off enemies from there (1.6.10).
+- **Route network** (1.7.0): every map gets foot routes between all objectives and from each team's spawns to every
+  objective (planned by the bots in the background, or drawn by you in the 3D map). A soldier joins the route that ends at
+  its objective, walks it to the end and goes back to it after a fight.
 - Recovery when stuck: jump, crouch, knife through fences and doors, side-step or detour. A bot that is truly pinned is
   killed cleanly and respawns.
 
@@ -72,6 +75,10 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   cut from the map, along the whole line of a barrier (1.6.9), and the vehicle stops and re-routes before it hits anything.
 - **Route reuse** (1.6.10): vehicle routes go first in the planner, and a route planned once from a spot to a flag is
   kept and reused by the next vehicle there, so drivers set off at once.
+- **Vehicle routes they keep to** (1.7.0): a driver near a saved vehicle route that leads towards its flag drives it
+  from start to end - aiming closer ahead, steering back from 2 m off the line, slowing down when off it, never
+  re-planning around it. Only a barrier found across the route makes it go round and back onto the route. Draw them in
+  the 3D map (or LearnViewer).
 - **Crews** (1.6.8): when the driver gets out, a passenger moves over and drives on, or the crew gets out at once.
 - When a vehicle is boxed in, it backs out the way it came. Spots where vehicles got stuck are remembered across rounds.
 - **Boost uphill** (1.6.10): drivers hold Sprint (Shift) where the vehicle or the route climbs.
@@ -80,7 +87,14 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   learning map.
 
 ### Tools
-- **PhoenixLauncher.exe**: one window to start the backend (XAMPP MySQL/Apache, redirector, emulator), the server, the
+- **Phoenix-Launcher.bat** (1.7.0): the new launcher in Bad Company 2's olive, sand and amber. Backend lights and
+  start / stop (MySQL, redirector, BC2 emulator), servers 1 - 4 with live map, mode and players, start / stop / next map,
+  bots that attach by themselves when a server's level is up, the bot settings, each server's map list (mode, Vietnam,
+  order, rounds, play next) and the tools below.
+- **3D map + route editor** (`tools/Map3D`, 1.7.0): the "lidar" scan the bots make of each map as a 3D point cloud in your
+  browser, with flags, M-COMs, spawns, vehicles, roads and every route. Draw, move and delete foot and vehicle routes and
+  save them; the bots use them within 5 seconds. Needs Node.js.
+- **PhoenixLauncher.exe** (classic): one window to start the backend (XAMPP MySQL/Apache, redirector, emulator), the server, the
   bots and the game. **Stop All** shuts everything down safely. It also has bot settings, a map-list maker, a
   **Players** window that registers accounts on your BF-Portable backend, and a **LAN games** window that finds servers
   on your network and joins them.
@@ -118,7 +132,14 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 ## Play
 
-**With the launcher (easiest)**
+**With the new launcher (easiest)**
+1. Run `Phoenix-Launcher.bat`. If it can't find your BF-Portable folder, click **PATHS**.
+2. Click **START BACKEND**, pick a server card and press **START**. The bots attach as soon as the level is up (allow the
+   administrator prompt if Windows asks).
+3. Press **PLAY BAD COMPANY 2** and join from the server browser.
+4. **STOP** closes the server; **STOP** under the backend shuts MySQL down cleanly.
+
+**With the classic launcher**
 1. Run `PhoenixLauncher.exe`.
 2. Point it at your server (BF-Portable's `BFBC2.bat` or the server .exe) and your game. **Find XAMPP** fills in the
    backend programs.
@@ -152,11 +173,25 @@ Until the grid is ready, bots don't drive ground vehicles.
 | `RushObjectives` | 1 | Arm and defuse M-COMs in Rush |
 | `FrozenRespawn` | 30 | Seconds pinned in place before a bot is respawned |
 | `KeepBotPlayers` | 1 | Dead bots keep their player, so scores add up |
+| `Routes` | 1 | Bots always use the saved foot and vehicle routes (1.7.0) |
+| `AutoRoutes` | 1 | Bots plan the missing spawn / objective foot routes themselves (1.7.0) |
 | `NavcacheDir` | (empty) | Where maps and learning are kept. Empty means `<server folder>\PhoenixNavcache` |
 
 Every option is commented in the file itself. The settings are read when the bots attach.
 
-## Draw routes for vehicles
+## Draw routes (3D map)
+
+1. Install [Node.js](https://nodejs.org) (LTS) once.
+2. In `Phoenix-Launcher.bat` click **3D MAP + ROUTE EDITOR** (or run `node tools\Map3D\server.js` and open
+   http://localhost:8644/). It finds the shared `PhoenixNavcache` by itself. A map appears once the bots have scanned it.
+3. Pick **Foot route** or **Vehicle route**, click along the way the bots should go, finish the route and **Save**.
+   Foot routes go into `PhoenixNavcache\<map>.froutes`, vehicle routes into `PhoenixNavcache\<map>.vroutes`; the old
+   files are backed up in `PhoenixNavcache\backup_3d\` first.
+
+Bots read the files again within 5 seconds, even mid-round. A soldier walks a foot route that ends at its objective;
+a driver drives a vehicle route to its end.
+
+### The older way: LearnViewer (vehicle lines only)
 
 1. In the launcher, click **Bot learning...**, or open `LearnViewer.html` directly.
 2. Click **Open navcache folder** and pick the `PhoenixNavcache` folder next to your server (the launcher names it).
@@ -184,9 +219,11 @@ Without MinGW, on Windows with LLVM clang and the Visual Studio 2022 Build Tools
 
 | Folder | Contents |
 |---|---|
-| `runtime/` | The bot runtime: world reading, bot brains, vehicles, learning, roads, indoor routes, launcher |
+| `runtime/` | The bot runtime: world reading, bot brains, vehicles, learning, roads, the route network (`routenet.c`), indoor routes, classic launcher |
 | `src/` | Navigation grid and A* (`nav.c`), the player observer and the simulation-tick hook |
 | `harness/` | An offline test harness. A mock BC2 server and game simulation run the real runtime on Linux |
+| `tools/Map3D/` | The 3D map and route editor (Node.js server + three.js page) |
+| `Phoenix-Launcher.ps1` | The launcher (PowerShell + WPF); `PHOENIX_LAUNCHER_TEST=1` prints what it finds |
 | `viewer/` | The learning map (`learn-viewer.html`; `LearnViewer.html` is the standalone copy) |
 | `backend/` | Bot accounts for the BF-Portable database |
 | `docs/` | Engine notes: addresses, structures and what was learned about the BC2 server |

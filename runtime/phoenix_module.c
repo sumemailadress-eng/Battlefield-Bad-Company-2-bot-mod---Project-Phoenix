@@ -11,7 +11,7 @@
 #include <math.h>
 #include <wchar.h>
 
-PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1};
+PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1, 1, 1};
 WCHAR g_rootDir[1024];
 static HMODULE g_module;
 static HANDLE g_logFile = INVALID_HANDLE_VALUE;
@@ -147,6 +147,8 @@ static void load_config(void)
         else if (!_stricmp(k, "StationaryWeapons")) g_cfg.emplacements = x != 0;
         else if (!_stricmp(k, "Boats")) g_cfg.boats = x != 0;
         else if (!_stricmp(k, "LearnFromHumans")) g_cfg.learnHumans = x != 0;
+        else if (!_stricmp(k, "Routes")) g_cfg.routes = x != 0;
+        else if (!_stricmp(k, "AutoRoutes")) g_cfg.autoRoutes = x != 0;
         else if (!_stricmp(k, "RushObjectives")) g_cfg.objectives = x != 0;
         else if (!_stricmp(k, "BotDamage")) g_cfg.botDamage = fmaxf(0.5f, fminf(3.0f, x));
         else if (!_stricmp(k, "ScoreboardNames")) g_cfg.scoreboard = (int)fmaxf(0, fminf(2, x));
@@ -227,6 +229,7 @@ static void after_update(void *context, uint32_t manager, float dt, uint32_t thr
     capture_human_kit_flags();
     double t1 = rt_now();
     navg_tick(now);
+    rn_tick(now);   /* 1.7.0: the route network */
     double t2 = rt_now();
     bots_tick(now, dt);
     double t3 = rt_now(), part[3] = {t1 - t0, t2 - t1, t3 - t2};

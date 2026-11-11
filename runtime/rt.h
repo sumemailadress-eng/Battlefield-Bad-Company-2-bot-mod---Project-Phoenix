@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "bc2_observe.h"
 
-#define PHX_VERSION "1.6.10"
+#define PHX_VERSION "1.7.0"
 #define MAX_BOTS 48
 #define MAX_CPS 16
 #define MAX_SPAWNS 64
@@ -48,6 +48,9 @@ typedef struct PhxConfig {
     int boats;              /* bots drive boats along the water (Boats=1) */
     int learnHumans;        /* bots learn the routes human players walk and drive (LearnFromHumans=1) */
     int objectives;         /* Rush / Squad Rush: arm and defuse the M-COMs (RushObjectives=1) */
+    /* 1.7.0 */
+    int routes;             /* bots follow the route network: PhoenixNavcache\\<map>.froutes / .vroutes (Routes=1) */
+    int autoRoutes;         /* plan the missing spawn/objective foot routes in the background and save them (AutoRoutes=1) */
 } PhxConfig;
 extern PhxConfig g_cfg;
 
@@ -176,6 +179,16 @@ int  navg_path_vehicle(int owner, const float *from, const float *to, float *out
 float navg_vehicle_gap(void);       /* 1.6.6: last vehicle route: metres from its end to the flag (off-road flag) */
 int  navg_vehicle_partial(void);    /* 1.6.6: last vehicle route is a partial one (search ran out) */
 int  navg_drive_line_ok(const float *a, const float *b);   /* 1.6.6: the straight line stays on the drive map */
+float navg_ground_at(float x, float z);   /* 1.7.0: the highest walkable surface in that cell (NaN = none) */
+void rt_nav_cache_path(const char *key, char *out, unsigned size);   /* module / harness */
+const char *navg_key(void);
+/* routenet.c (1.7.0) */
+#define RN_PTS 256
+void rn_tick(double now);
+int  rn_pick_foot(const float *from, const float *goal, float *out, int max, float *joinDist, int *id);
+int  rn_pick_vehicle(const float *from, const float *goal, float *out, int max, float *joinDist, int *id);
+void rn_foot_failed(int id);
+void rn_status(void);
 const char *navg_last_error(void);
 int  navg_mark_water(const float *pos, float radius);
 int  navg_land_near(const float *pos, float radius, float *out);

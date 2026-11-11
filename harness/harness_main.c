@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1};
+PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1, 1, 1};
 static double g_now;
 static uint32_t rng = 12345;
 static int quiet;
@@ -45,6 +45,7 @@ int main(int argc, char **argv)
         if (getenv("STOPAT") && fabs(g_now - atof(getenv("STOPAT"))) < dt / 2) { bots_stop_all(); printf("STOP issued\n"); }
         world_tick(g_now);
         navg_tick(g_now);
+        rn_tick(g_now);
         bots_tick(g_now, dt);
         if (getenv("WATERTEST") && t % 45 == 0 && g_now > 20) {   /* 1.6: water marked while vehicle routes are queued (Isla Inocentes crash) */
             static int k; float p[3] = {-200.0f + (k * 37) % 400, 0, -150.0f + (k * 53) % 300}; k++;

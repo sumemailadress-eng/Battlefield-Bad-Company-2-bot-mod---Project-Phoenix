@@ -6,7 +6,12 @@ the game's own AI used.
 
 ## Use it
 
-**Easiest: PhoenixLauncher.exe.** Set the server (BF-Portable's `BFBC2.bat` or the server .exe) and the game once - they
+**Easiest (1.7.0): Phoenix-Launcher.bat.** The new launcher, in Bad Company 2's colours. Start the backend, pick a server
+(1 - 4, from BF-Portable's `BFBC2.bat` ... `BFBC2_4.bat`), press **START**: the bots attach by themselves as soon as the
+level is up. It edits each server's map list, sets the bot settings and opens the **3D map + route editor**. The first time,
+check **PATHS** if it can't find your BF-Portable folder.
+
+**The classic one: PhoenixLauncher.exe.** Set the server (BF-Portable's `BFBC2.bat` or the server .exe) and the game once - they
 are remembered in `launcher.ini` - choose the bot settings, and press **Start All**: server, bots and (after the delay
 you set) the game. Start Server / Start Bots / Stop Bots / Start Game / Logs are there separately too. Bot settings are
 written into `phoenix.ini`.
@@ -22,6 +27,53 @@ By hand:
 
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
+
+## What changed in 1.7.0 - a route network bots keep to, a 3D map to draw routes, a new launcher
+
+- **Routes bots always follow.** Every map now has a route network, kept in two files in the shared navcache
+  (`PhoenixNavcache\`):
+  - `<map>.froutes` - **foot routes**. The bots plan them themselves in the background, one at a time: between every pair
+    of objectives (flags or M-COMs) and from each team's spawn areas to every objective (`AutoRoutes=1`). A soldier heading
+    for an objective joins the route that ends there (the nearest one within 45 m), walks it point by point to its end and
+    only then walks the last metres to the objective. Pushed off it in a fight, it goes back to the route, not past it.
+    A planned route bots keep getting stuck on (3 times) is thrown away and planned again; a route you drew is never thrown away.
+  - `<map>.vroutes` - **vehicle routes**. A driver whose vehicle is within 60 m of a route that takes it at least 30 m
+    closer to its flag drives to the route and then **drives it to its end** - no corner cutting, no re-planning every
+    15 s, no swapping to another route on the way. On it, the driver aims closer ahead (5 - 11 m), steers back from 2 m off
+    the line, and slows down while it is off it. Only a barrier found across the route (a hazard cut) makes it go round
+    and back onto the route. At the end of the route the normal road planning takes over to the flag. Lines drawn in
+    LearnViewer (`<map>.routes`) count as vehicle routes too.
+  - Every other driver goes back to its planned line from 3 m off it (was 5 m).
+  - Both files are read again within 5 s when they change, so a route drawn mid-round is used in the same round.
+  - The bots also write `<map>.objectives` (flags, M-COMs, spawns) and `<map>.vehicles` (where the vehicles stand) every
+    30 s, and `live.txt` (the map being played), for the 3D map.
+  - `[Routes]` in phoenix.ini: `Routes=0` turns the route network off, `AutoRoutes=0` keeps only the routes you draw.
+- **3D map + route editor** (`tools\Map3D`, the "lidar" view): the navigation scan the bots make of each map - every
+  walkable surface, up to 6 floors per cell, walls, ledges and roads - shown as a 3D point cloud in your browser, with the
+  flags, M-COMs, spawns, vehicles and every route on top. **Draw foot routes and vehicle routes by clicking on the ground**,
+  move or delete points and whole routes, and save: Phoenix uses them within 5 s. Every save backs the old files up into
+  `PhoenixNavcache\backup_3d\` first. Start it from the launcher (**3D MAP**), or with `node tools\Map3D\server.js`
+  and then http://localhost:8644/ - it needs [Node.js](https://nodejs.org) (the LTS installer). It finds the shared
+  navcache the same way the bots do (`NavcacheDir=`, else next to the server). It never touches the server.
+- **New launcher: Phoenix-Launcher.bat** (PowerShell + WPF, nothing to install). Olive, sand and amber, with:
+  - the backend: MySQL (through BF-Portable's `Start-MySQL-Safe.ps1` when it is there), the web server if your
+    BF-Portable has one, the redirector and the BC2 emulator (`mase_bc2.exe`), with a status light each. MySQL is
+    stopped cleanly (`Stop-MySQL-Safe.bat` / `mysqladmin shutdown`), never killed;
+  - servers 1 - 4 read from BF-Portable's own `BFBC2*.bat` and `Instance*\ServerOptions.ini` (name, game port, RCON port):
+    live map, mode, players and round over RCON; START / STOP / RESTART / RESTART ROUND / NEXT MAP (BC2's own
+    `admin.restartMap` / `admin.runNextLevel`);
+  - bots per server: **AUTO-ATTACH** attaches Phoenix to that server's process as soon as its level answers, ATTACH BOTS NOW
+    and REMOVE BOTS; Windows asks for permission once if the server runs as administrator;
+  - bot settings for all servers in phoenix.ini: bots per team, difficulty, vehicles (off / ride / drive), helicopters,
+    routes and auto routes;
+  - each server's `maplist.txt`: BC2 plays one mode per list, so pick a mode (and Vietnam), add maps, reorder, remove,
+    set the rounds, **PLAY THIS MAP NEXT**, or **SWITCH LIST TO MODE** (each map becomes the same map's level in that mode).
+    Vietnam maps set `GameModID = VIETNAM` in ServerOptions.ini for you. The first change backs each file up as `*.phoenix.bak`;
+  - tools: 3D map, LearnViewer, the bot log, the navcache folder, phoenix.ini, the classic launcher, and **PLAY BAD COMPANY 2**.
+  - `PHOENIX_LAUNCHER_TEST=1` prints what it found without starting anything.
+- Made for Bad Company 2's engine (Frostbite 1.5): the route network runs inside Phoenix's own BC2 runtime - its BC2
+  navigation grid (6 floors per cell), its BC2 objectives and spawns, its BC2 vehicle driving. Nothing from the BF4 or
+  Hardline bot mods' engine code was used; only the route file ideas and the 3D page were carried over and adapted.
 
 ## What changed in 1.6.10 - vehicles that drive at speed, routes for every driver, snipers up high
 
