@@ -28,6 +28,19 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.5 - the launcher sees a running server, and attaches the bots
+
+- **A server whose level is up shows LIVE** even when its RCON doesn't answer the launcher: the launcher also reads the
+  server's own log (`Instance\RuntimeLog_*.log`), which says "Loading server level ..." and "Server level ... loaded".
+  1.7.2 - 1.7.4 only believed RCON, so a server that was up stayed on LOADING and the bots never attached. The card then
+  says the level is up and the players are unknown, and the status line shows why RCON failed.
+- **AUTO-ATTACH works for any server that is up**, also one started with BFBC2.bat or the classic launcher - once per
+  server process (a server that already has Phoenix is left as it is).
+- RCON is tried on 127.0.0.1 and ::1 (the server listens on "localhost" only); a server whose RCON failed is asked again
+  after 60 s, so a silent RCON doesn't hold the window up.
+- The server process is also found by its RCON port, when a server running as administrator hides its command line.
+- Setting the game with PLAY BAD COMPANY 2 now makes the map pictures too (before, only PATHS did).
+
 ## What changed in 1.7.4 - routes come with Phoenix
 
 - **Ready-made vehicle routes** for **Atacama Desert** (Conquest: 28 routes from the US HQ, 48 forks) and **Port Valdez**

@@ -10,7 +10,7 @@
 # map list format (a mode line, then "Levels/<map> <rounds>").
 param([string]$Portable = '')
 $ErrorActionPreference = 'Continue'
-$Version = '1.7.4'
+$Version = '1.7.5'
 
 # ---------------------------------------------------------------- launcher settings
 $setPath = Join-Path $PSScriptRoot 'Phoenix-Launcher.ini'
@@ -138,19 +138,57 @@ function Read-Packet($stream) {
     }
 }
 # one word array per command, or $null when that server doesn't answer. BC2: serverInfo needs no login, the rest do.
+# (BF-Portable's BC2 server listens on "localhost" only - 127.0.0.1, or ::1 on some PCs: both are tried; why the last try
+#  failed is kept in $s.RconErr for the status line)
+function Rcon-Connect($s) {
+    $hosts = @('127.0.0.1', '::1'); if ($s.RconHost) { $hosts = @($s.RconHost) + @($hosts | Where-Object { $_ -ne $s.RconHost }) }
+    foreach ($h in $hosts) {
+        try {
+            $fam = if ($h -eq '::1') { [Net.Sockets.AddressFamily]::InterNetworkV6 } else { [Net.Sockets.AddressFamily]::InterNetwork }
+            $c = New-Object Net.Sockets.TcpClient($fam)
+            $iar = $c.BeginConnect([Net.IPAddress]::Parse($h), $s.RconPort, $null, $null)
+            if (-not $iar.AsyncWaitHandle.WaitOne(700)) { $c.Close(); $s.RconErr = "no answer on ${h}:$($s.RconPort)"; continue }
+            $c.EndConnect($iar); $s.RconHost = $h; return $c
+        } catch { $s.RconErr = "${h}:$($s.RconPort) - $($_.Exception.InnerException.Message)$($_.Exception.Message)" }
+    }
+    return $null
+}
 function Invoke-Rcon($s, [object[]]$commands) {
     try {
-        $c = New-Object Net.Sockets.TcpClient
-        $iar = $c.BeginConnect('127.0.0.1', $s.RconPort, $null, $null)
-        if (-not $iar.AsyncWaitHandle.WaitOne(600)) { $c.Close(); return $null }
-        $c.EndConnect($iar); $st = $c.GetStream(); $st.ReadTimeout = 4000; $seq = 1
+        $c = Rcon-Connect $s; if (-not $c) { return $null }
+        $st = $c.GetStream(); $st.ReadTimeout = 2500; $seq = 1
         $needLogin = @($commands | Where-Object { $_[0] -ne 'serverInfo' }).Count -gt 0
         if ($needLogin -and $s.Pass) { Send-Packet $st $seq @('login.plainText', $s.Pass); $seq++; Read-Packet $st | Out-Null }
         $out = @()
         foreach ($cmd in $commands) { Send-Packet $st $seq ([string[]]$cmd); $seq++; $out += , (Read-Packet $st) }
         $c.Close()
+        $s.RconErr = ''
         return , $out
+    } catch { $s.RconErr = "port $($s.RconPort): $($_.Exception.Message)"; try { $c.Close() } catch {}; return $null }
+}
+
+# The server's own log (Instance\RuntimeLog_*.log, written as it runs) says when a level is loading and when it is up:
+#   "Loading server level 'Levels/MP_005'..."  /  "------------ Server level 'Levels/MP_005' loaded -------------"
+# so a server shows LIVE (and the bots attach) even when RCON can't be reached.
+$logCache = @{}
+function Server-LogState($s) {
+    $f = Get-ChildItem $s.Inst -Filter 'RuntimeLog_*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $f) { return $null }
+    $k = "$($f.FullName)|$($f.Length)"
+    if ($logCache[$s.N] -and $logCache[$s.N].Key -eq $k) { return $logCache[$s.N].State }
+    $txt = ''
+    try {
+        $fs = New-Object IO.FileStream($f.FullName, 'Open', 'Read', 'ReadWrite')
+        $len = [Math]::Min($fs.Length, 4MB); [void]$fs.Seek(-$len, 'End'); $buf = New-Object byte[] $len; $got = 0
+        while ($got -lt $len) { $r = $fs.Read($buf, $got, $len - $got); if ($r -le 0) { break }; $got += $r }
+        $fs.Close(); $txt = [Text.Encoding]::ASCII.GetString($buf, 0, $got)
     } catch { return $null }
+    $st = $null
+    $iLoad = $txt.LastIndexOf("Loading server level '"); $iUp = $txt.LastIndexOf("------------ Server level '")
+    if ($iUp -ge 0 -and $iUp -gt $iLoad) { $lv = $txt.Substring($iUp + 27).Split("'")[0]; $st = @{ Live = $true; Level = $lv } }
+    elseif ($iLoad -ge 0) { $lv = $txt.Substring($iLoad + 22).Split("'")[0]; $st = @{ Live = $false; Level = $lv } }
+    $logCache[$s.N] = @{ Key = $k; State = $st }
+    return $st
 }
 
 # ---------------------------------------------------------------- processes
@@ -160,7 +198,12 @@ function Get-ServerProcs {
 }
 function Find-ServerPid($s, $procs) {
     foreach ($p in $procs) { if ($p.CommandLine -and $p.CommandLine -match "(?<![A-Za-z])-port\s+$($s.GamePort)(\D|$)") { return [int]$p.ProcessId } }
-    # a server running as administrator hides its command line from a launcher that isn't: find it by its game port instead
+    # a server running as administrator hides its command line from a launcher that isn't: find it by its RCON port
+    # (TCP, "localhost:47400" in its log) or its game port instead
+    try {
+        $t = Get-NetTCPConnection -LocalPort $s.RconPort -State Listen -ErrorAction Stop | Select-Object -First 1
+        if ($t -and ($procs | Where-Object { [int]$_.ProcessId -eq [int]$t.OwningProcess })) { return [int]$t.OwningProcess }
+    } catch {}
     try {
         $u = Get-NetUDPEndpoint -LocalPort $s.GamePort -ErrorAction Stop | Select-Object -First 1
         if ($u -and ($procs | Where-Object { [int]$_.ProcessId -eq [int]$u.OwningProcess })) { return [int]$u.OwningProcess }
@@ -815,6 +858,7 @@ function Write-List($s, $list) {
 
 # ---------------------------------------------------------------- bots (PhoenixAttach)
 $attachJobs = @{}     # server n -> @{ Proc; Pid; Since }
+$attachTried = @{}    # server process id -> the launcher has attached (or tried to) once
 $pendingAttach = @{}  # server n -> deadline: attach once its level is up
 function Bots-Attach([int]$n) {
     $s = $srv[$n]
@@ -876,11 +920,28 @@ function Refresh-Servers {
         $s = $srv[$n]
         $old = $s.Pid
         $s.Pid = Find-ServerPid $s $procs
-        if ($s.Pid -ne $old) { $s.Bots = 'off' }
+        if ($s.Pid -ne $old) { $s.Bots = 'off'; $s.RconFailAt = $null; $s.LoadingLevel = $null; $s.RconErrSaid = $null }
         $s.Info = $null
+        $s.Rcon = $false
         if ($s.Pid) {
-            $r = Invoke-Rcon $s @(, @('serverInfo'))
-            if ($r -and $r[0][0] -eq 'OK') { $s.State = 'live'; $s.Info = $r[0] } else { $s.State = 'starting' }
+            # (a server whose RCON failed is asked again after 60 s only: a silent RCON would hold the window up every refresh)
+            $r = $null
+            if (-not $s.RconFailAt -or ((Get-Date) - $s.RconFailAt).TotalSeconds -gt 60) {
+                $r = Invoke-Rcon $s @(, @('serverInfo'))
+                $s.RconFailAt = if ($r) { $null } else { Get-Date }
+            }
+            if ($r -and $r[0].Count -ge 6 -and $r[0][0] -eq 'OK') { $s.State = 'live'; $s.Info = $r[0]; $s.Rcon = $true }
+            else {
+                # no RCON: the server's log says whether its level is up (players unknown then)
+                $ls = Server-LogState $s
+                if ($ls -and $ls.Live) { $s.State = 'live'; $l1 = Read-List $s; $s.Info = @('OK', $s.Name, '?', '?', $l1.Mode, $ls.Level, '0', '1') }
+                else { $s.State = 'starting'; if ($ls) { $s.LoadingLevel = $ls.Level } }
+                if ($s.RconErr -and $s.RconErr -ne $s.RconErrSaid) { $s.RconErrSaid = $s.RconErr; Say "Server $n RCON: $($s.RconErr)" }
+            }
+            # AUTO-ATTACH: any server that is up - also one started outside the launcher - once per server process
+            if ($s.State -eq 'live' -and $set["BotsOn$n"] -eq '1' -and $s.Bots -eq 'off' -and -not $attachTried[$s.Pid] -and -not $attachJobs[$n] -and -not $script:scan) {
+                $attachTried[$s.Pid] = $true; $pendingAttach[$n] = (Get-Date).AddMinutes(1)
+            }
         } elseif ($pendingAttach[$n] -and (Get-Date) -lt $pendingAttach[$n]) { $s.State = 'starting' } else { $s.State = 'off' }
         $st = $ui["CardState$n"]; $mp = $ui["CardMap$n"]; $pl = $ui["CardPlayers$n"]; $bt = $ui["CardBots$n"]
         $ui["CardName$n"].Text = $s.Name
@@ -888,9 +949,9 @@ function Refresh-Servers {
             'live' {
                 $st.Text = 'LIVE'; $st.Foreground = $cOlive
                 $mp.Text = "$(Map-Name $s.Info[5])  /  $(Mode-Name $s.Info[4])"
-                $pl.Text = "$($s.Info[2])/$($s.Info[3]) PLAYERS   ROUND $([int]$s.Info[6] + 1)/$($s.Info[7])"
+                $pl.Text = if ($s.Rcon) { "$($s.Info[2])/$($s.Info[3]) PLAYERS   ROUND $([int]$s.Info[6] + 1)/$($s.Info[7])" } else { 'LEVEL UP (no RCON: players unknown)' }
             }
-            'starting' { $st.Text = 'LOADING'; $st.Foreground = $cAmber; $mp.Text = 'level loading...'; $pl.Text = '' }
+            'starting' { $st.Text = 'LOADING'; $st.Foreground = $cAmber; $mp.Text = $(if ($s.LoadingLevel) { "loading $(Map-Name $s.LoadingLevel)..." } else { 'level loading...' }); $pl.Text = '' }
             default {
                 $st.Text = 'OFFLINE'; $st.Foreground = $cDim
                 $l = Read-List $s
@@ -913,8 +974,8 @@ function Update-Selected {
     $ui.SelPorts.Text = "GAME $($s.GamePort)   RCON $($s.RconPort)   $($s.Login)"
     $ui.RotTitle.Text = "MAP LIST // SERVER $n"
     switch ($s.State) {
-        'live' { $ui.SelStatus.Text = "LIVE: $(Map-Name $s.Info[5]), $(Mode-Name $s.Info[4])  -  $($s.Info[2]) of $($s.Info[3]) players"; $ui.SelStatus.Foreground = $cOlive }
-        'starting' { $ui.SelStatus.Text = 'LOADING (not answering RCON yet)...'; $ui.SelStatus.Foreground = $cAmber }
+        'live' { $ui.SelStatus.Text = if ($s.Rcon) { "LIVE: $(Map-Name $s.Info[5]), $(Mode-Name $s.Info[4])  -  $($s.Info[2]) of $($s.Info[3]) players" } else { "LIVE: $(Map-Name $s.Info[5]) (from the server log - RCON: $($s.RconErr))" }; $ui.SelStatus.Foreground = $cOlive }
+        'starting' { $ui.SelStatus.Text = "LOADING$(if ($s.LoadingLevel) { ' ' + (Map-Name $s.LoadingLevel) })..."; $ui.SelStatus.Foreground = $cAmber }
         default { $ui.SelStatus.Text = $(if (Test-Path $s.Bat) { 'OFFLINE' } else { "OFFLINE - $(Split-Path $s.Bat -Leaf) not found (PATHS)" }); $ui.SelStatus.Foreground = $cDim }
     }
     $on = $set["BotsOn$n"] -eq '1'
@@ -1089,7 +1150,7 @@ $ui.BtnPaths.Add_Click({ Safe {
 $ui.BtnGame.Add_Click({ Safe {
     if (-not $gameExe -or -not (Test-Path $gameExe)) {
         $g = Pick-File 'Where is BFBC2Game.exe?' 'BFBC2Game.exe|BFBC2Game.exe|Programs|*.exe' ''
-        if (-not $g) { return }; $script:gameExe = $g; $set.Game = $g; Save-Settings
+        if (-not $g) { return }; $script:gameExe = $g; $set.Game = $g; Save-Settings; $thumbCache.Clear(); Make-Thumbs $false
     }
     Say 'Starting Bad Company 2... (servers appear in its server browser once they are LIVE)'
     Start-Process -FilePath $gameExe -WorkingDirectory (Split-Path $gameExe) | Out-Null
