@@ -28,6 +28,18 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.6 - rubber-banding fixed (the indoor survey)
+
+- **Cause:** the survey that looks for the way into a building (an M-COM upstairs, or any spot within 45 m that the grid
+  has no route to) cast 500 rays a tick and only checked between whole points. On Atacama Desert (live log, 30 bots)
+  that cost the server 13-15 ms a tick on average while a big survey ran (8474 points over 13 s), single ticks of up to
+  166 ms, and the server's own log (`Instance\RuntimeLog_*.log`, `GameTimer`) showed **2-4 s lost out of every 10 s**
+  exactly then (230 and 190 frames instead of 300) - the players' rubber-banding. Outside the surveys Phoenix used
+  8-10 ms a tick and the server lost nothing.
+- **Fix:** the survey now runs on a clock - at most 1.2 ms a tick, stopping between single rays-worth of work (one
+  neighbour of one point) and going on next tick. A big survey takes longer to finish; the server no longer stalls.
+- The `perf:` line now shows the survey's time separately ("indoor survey").
+
 ## What changed in 1.7.5 - the launcher sees a running server, and attaches the bots
 
 - **A server whose level is up shows LIVE** even when its RCON doesn't answer the launcher: the launcher also reads the

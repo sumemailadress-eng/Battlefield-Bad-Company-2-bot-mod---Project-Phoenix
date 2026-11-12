@@ -44,6 +44,7 @@ static int (*g_col)[IN_LAYERS];   /* node ids per column */
 static unsigned char *g_colN;
 static float g_floor0;
 static unsigned g_rays;
+static int g_cur = -1, g_curDir;   /* 1.7.5: the point being expanded and its next neighbour */
 
 static int ray(const float *a, const float *b, float *hit) { float h[3], nrm[3]; g_rays++; int r = eng_ray(a, b, h, nrm); if (r && hit) memcpy(hit, h, 12); return r; }
 static void npos(const INode *n, const float *t, float *o) { o[0] = t[0] + n->ix * IN_STEP; o[1] = n->y; o[2] = t[2] + n->iz * IN_STEP; }
@@ -110,7 +111,7 @@ static int add_node(int ix, int iz, float y, int parent, int door)
 static void survey_free(void)
 {
     free(g_n); free(g_queue); free(g_doorQ); free(g_edgeQ); free(g_col); free(g_colN);
-    g_n = NULL; g_queue = g_doorQ = g_edgeQ = NULL; g_col = NULL; g_colN = NULL; g_active = -1;
+    g_n = NULL; g_queue = g_doorQ = g_edgeQ = NULL; g_col = NULL; g_colN = NULL; g_active = -1; g_cur = -1;
 }
 static int survey_alloc(void)
 {
@@ -162,24 +163,42 @@ static void finish(IRoute *r, int exitNode)
 #endif
     survey_free();
 }
-static void survey_step(unsigned budget)
+/* 1.7.5: the survey runs on a clock, one neighbour at a time. 1.6.3 - 1.7.4 gave it 500 rays a tick, checked only
+   between whole points (4 neighbours, up to ~60 rays each): live on Atacama that was 13-15 ms a tick on average and up
+   to 166 ms in one tick, and the server lost 2-4 s of every 10 while a big survey ran (8474 points) - the players'
+   rubber-banding. Now it stops when its time is up (IN_BUDGET_MS a tick), wherever it is, and goes on next tick. */
+#define IN_BUDGET_MS 1.2
+double g_indoorTime;   /* seconds spent surveying, for the perf: line */
+static void survey_step(void)
 {
     IRoute *r = &g_routes[g_active]; const float *t = r->target;
-    unsigned start = g_rays;
+    double t0 = rt_now();
     static const int dir[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-    while (g_rays - start < budget) {
-        int cur;
-        if (g_head < g_qn) cur = g_queue[g_head++];
-        else if (g_edgeHead < g_eqn) cur = g_edgeQ[g_edgeHead++];   /* by a drop (a stair's open side, a balcony) after the middle */
-        else if (g_doorHead < g_dqn) cur = g_doorQ[g_doorHead++];   /* through a door only when there is no other way */
-        else { finish(r, -1); return; }
+#ifdef PHX_HARNESS
+    int steps = 40;    /* (the harness clock stands still within a tick: a step count instead, about the old 500 rays) */
+#else
+    int steps = 400;   /* (a ceiling only; the clock stops it first) */
+#endif
+    while (rt_now() - t0 < IN_BUDGET_MS / 1000.0 && steps-- > 0) {
+        if (g_cur < 0) {
+            int cur;
+            if (g_head < g_qn) cur = g_queue[g_head++];
+            else if (g_edgeHead < g_eqn) cur = g_edgeQ[g_edgeHead++];   /* by a drop (a stair's open side, a balcony) after the middle */
+            else if (g_doorHead < g_dqn) cur = g_doorQ[g_doorHead++];   /* through a door only when there is no other way */
+            else { finish(r, -1); return; }
+            INode c0 = g_n[cur]; float cp0[3]; npos(&c0, t, cp0);
+            if (c0.depth > 4 && is_exit(cp0)) { finish(r, cur); return; }
+            g_cur = cur; g_curDir = 0;
+            continue;
+        }
+        if (g_curDir >= 4) { g_cur = -1; if (g_nn >= IN_MAXN - 4) { finish(r, -1); return; } continue; }
+        int cur = g_cur, d = g_curDir++;
         INode c = g_n[cur]; float cp[3]; npos(&c, t, cp);
 #ifdef PHX_HARNESS
         if (getenv("INDBG2") && c.depth >= 5 && c.depth <= 6) { float sn[3]; int sk = open_sky(cp[0], cp[1], cp[2]), snp = navg_snap(cp, sn);
             rt_log("INDBG2 node d%d (%.1f %.2f %.1f) edge %d sky %d snap %d (%.1f %.2f %.1f) main %d", c.depth, cp[0], cp[1], cp[2], c.edge, sk, snp, sn[0], sn[1], sn[2], snp ? navg_main_area(sn) : -1); }
 #endif
-        if (c.depth > 4 && is_exit(cp)) { finish(r, cur); return; }
-        for (int d = 0; d < 4; d++) {
+        {
             int nx = c.ix + dir[d][0], nz = c.iz + dir[d][1];
             if (nx < -IN_HALF || nx > IN_HALF || nz < -IN_HALF || nz > IN_HALF) continue;
             float x = t[0] + nx * IN_STEP, z = t[2] + nz * IN_STEP, fy;
@@ -199,7 +218,6 @@ static void survey_step(unsigned budget)
             g_n[id].edge = (unsigned char)edge;
             if (w == 2) g_doorQ[g_dqn++] = id; else if (edge) g_edgeQ[g_eqn++] = id; else g_queue[g_qn++] = id;
         }
-        if (g_nn >= IN_MAXN - 4) { finish(r, -1); return; }
     }
 }
 
@@ -243,7 +261,7 @@ void indoor_tick(void)
         if (g_active < 0) return;
     }
     if (g_routes[g_active].level != g_world.levelSerial) { g_routes[g_active].state = 0; survey_free(); return; }
-    survey_step(500);   /* ~3 ms a tick live (the level grid builds with ~5) */
+    double ts = rt_now(); survey_step(); g_indoorTime += rt_now() - ts;   /* (at most IN_BUDGET_MS a tick + one neighbour) */
 }
 /* the way in to target: 1 = a route (out: points exit -> target, doors), 0 = none / not yet */
 int indoor_route(const float *target, const float **pts, const unsigned char **doors)

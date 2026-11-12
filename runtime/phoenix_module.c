@@ -252,9 +252,10 @@ static void after_update(void *context, uint32_t manager, float dt, uint32_t thr
     if (now >= g_nextStatus) {
         g_nextStatus = now + g_cfg.logEvery; bots_status();
         double bp[3]; bots_perf(bp);
-        if (tN) rt_log("perf: Phoenix per server tick (%u ticks): world %.2f ms (worst %.1f), navigation %.2f (worst %.1f), bots %.2f (worst %.1f) [thinking %.2f, driving %.2f, movement step %.2f]; slowest tick %.1f ms; rays %.0f a tick",
+        if (tN) rt_log("perf: Phoenix per server tick (%u ticks): world %.2f ms (worst %.1f), navigation %.2f (worst %.1f), bots %.2f (worst %.1f) [thinking %.2f, driving %.2f, movement step %.2f, indoor survey %.2f]; slowest tick %.1f ms; rays %.0f a tick",
                        tN, tSum[0] * 1000 / tN, tMax[0] * 1000, tSum[1] * 1000 / tN, tMax[1] * 1000, tSum[2] * 1000 / tN, tMax[2] * 1000,
-                       bp[0] * 1000 / tN, bp[1] * 1000 / tN, bp[2] * 1000 / tN, tAll * 1000, (double)(eng_ray_count() - g_raysAtStatus) / tN);
+                       bp[0] * 1000 / tN, bp[1] * 1000 / tN, bp[2] * 1000 / tN, g_indoorTime * 1000 / tN, tAll * 1000, (double)(eng_ray_count() - g_raysAtStatus) / tN);
+        g_indoorTime = 0;
         g_raysAtStatus = eng_ray_count();
         memset(tSum, 0, sizeof tSum); memset(tMax, 0, sizeof tMax); tAll = 0; tN = 0;
         FlushFileBuffers(g_logFile);
