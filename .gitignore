@@ -5,6 +5,9 @@ harness/phoenix_harness
 *.o
 *.obj
 # generated navigation caches (per-map, machine-specific)
-navcache/
+navcache/*
+# ...except the vehicle routes that ship with Phoenix
+!navcache/*.vroutes
+!navcache/README.md
 *.dscan
 /thumbs/
