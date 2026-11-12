@@ -28,6 +28,19 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.2 - map pictures in the launcher
+
+- Every map in the launcher has a picture: its overhead map, the same one the game shows as the minimap. The maps list
+  shows them, the map you pick is shown large above it (name, mode, level), each server's map list shows them, and each
+  server card shows the map it is playing (or will start on).
+- The pictures are made on your PC from your own Bad Company 2 files (`tools\thumbs\PhoenixThumbs.cs` reads each
+  level's `minimapTexture` out of the game's `.fbrb` archives) and kept in `thumbs\`. Nothing is downloaded, and no game
+  pictures come with Phoenix. It happens once, in the background, the first time the launcher knows where the game is
+  (PATHS, or PLAY BAD COMPANY 2); **MAP PICTURES** does it again.
+- Arica Harbor and Laguna Presa have no overview in the game files: their pictures are drawn from Phoenix's own scan of
+  the map instead (as soon as the bots or the map scanner have scanned it). Cold War and Heavy Metal use the overviews of
+  the campaign levels they come from.
+
 ## What changed in 1.7.1 - flags and M-COMs on the 3D map, a scanner for every map, real map names
 
 - **Map scanner: SCAN ALL MAPS** (Phoenix-Launcher). Plays every Bad Company 2 map once on the selected server with

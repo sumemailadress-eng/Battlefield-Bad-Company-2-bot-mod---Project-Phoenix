@@ -10,7 +10,7 @@
 # map list format (a mode line, then "Levels/<map> <rounds>").
 param([string]$Portable = '')
 $ErrorActionPreference = 'Continue'
-$Version = '1.7.1'
+$Version = '1.7.2'
 
 # ---------------------------------------------------------------- launcher settings
 $setPath = Join-Path $PSScriptRoot 'Phoenix-Launcher.ini'
@@ -223,6 +223,11 @@ foreach ($n in 1..4) {
     $cardXaml += @"
 <Button x:Name="Card$n" Grid.Column="$($n - 1)" Style="{StaticResource Card}" Tag="$n" Margin="0,0,$(if ($n -lt 4) { '10' } else { '0' }),0">
   <Grid>
+   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <Border Grid.Column="1" Width="78" Height="78" Margin="8,22,0,0" VerticalAlignment="Top" BorderBrush="#3A3D27" BorderThickness="1" x:Name="CardPicBox$n" Visibility="Collapsed">
+     <Image x:Name="CardPic$n" Stretch="UniformToFill"/>
+   </Border>
+   <Grid>
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <DockPanel>
       <TextBlock DockPanel.Dock="Right" x:Name="CardState$n" Text="OFFLINE" FontFamily="Consolas" FontSize="12" Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
@@ -231,7 +236,8 @@ foreach ($n in 1..4) {
     <TextBlock Grid.Row="1" x:Name="CardName$n" Text="" FontSize="11" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis"/>
     <TextBlock Grid.Row="2" x:Name="CardMap$n" Text="-" Margin="0,6,0,0" FontSize="13" Foreground="{StaticResource Txt}" TextTrimming="CharacterEllipsis"/>
     <TextBlock Grid.Row="3" x:Name="CardPlayers$n" Text="" FontFamily="Consolas" FontSize="12" Foreground="{StaticResource Olive}"/>
-    <TextBlock Grid.Row="4" x:Name="CardBots$n" Text="" Margin="0,4,0,0" FontFamily="Consolas" FontSize="12" Foreground="{StaticResource Amber}"/>
+    <TextBlock Grid.Row="4" x:Name="CardBots$n" Text="" Margin="0,4,0,0" FontFamily="Consolas" FontSize="12" Foreground="{StaticResource Amber}" TextTrimming="CharacterEllipsis"/>
+   </Grid>
   </Grid>
 </Button>
 "@
@@ -491,6 +497,7 @@ $xamlText = @'
                 <Button x:Name="BtnIni" Style="{StaticResource Btn}" Content="PHOENIX.INI"/>
                 <Button x:Name="BtnClassic" Style="{StaticResource Btn}" Content="CLASSIC LAUNCHER"/>
                 <Button x:Name="BtnPaths" Style="{StaticResource Btn}" Content="PATHS"/>
+                <Button x:Name="BtnPics" Style="{StaticResource Btn}" Content="MAP PICTURES"/>
               </WrapPanel>
             </StackPanel>
           </ScrollViewer>
@@ -514,7 +521,7 @@ $xamlText = @'
               </WrapPanel>
               <TextBlock FontSize="11" Foreground="#968F75" TextWrapping="Wrap" Text="Bad Company 2 plays one mode per map list. A running server reads the list again at once; the server always starts on the first map."/>
             </StackPanel>
-            <ListBox x:Name="LstRot" FontFamily="Consolas" FontSize="13"/>
+            <ListBox x:Name="LstRot" FontSize="13"/>
           </DockPanel>
         </Border>
 
@@ -522,6 +529,18 @@ $xamlText = @'
         <Border Grid.Column="4" Background="#17190F" BorderBrush="#3A3D27" BorderThickness="1" Padding="14,12">
           <DockPanel>
             <TextBlock DockPanel.Dock="Top" Text="MAPS" Style="{StaticResource H}"/>
+            <Border DockPanel.Dock="Top" Height="168" Margin="0,0,0,8" Background="#11120C" BorderBrush="#3A3D27" BorderThickness="1" ClipToBounds="True">
+              <Grid>
+                <Image x:Name="MapPreview" Stretch="UniformToFill" VerticalAlignment="Center"/>
+                <TextBlock x:Name="PreviewNone" Text="" Foreground="#968F75" FontSize="12" TextWrapping="Wrap" Margin="12" VerticalAlignment="Center" TextAlignment="Center"/>
+                <Border VerticalAlignment="Bottom" Background="#CC0D0E09" Padding="8,4">
+                  <StackPanel>
+                    <TextBlock x:Name="PreviewName" Text="" FontFamily="{StaticResource Stencil}" FontSize="17" Foreground="#E8A33D"/>
+                    <TextBlock x:Name="PreviewSub" Text="" FontFamily="Consolas" FontSize="11" Foreground="#C9C1A6"/>
+                  </StackPanel>
+                </Border>
+              </Grid>
+            </Border>
             <ListBox DockPanel.Dock="Top" x:Name="LstModes" Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource Chip}">
               <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
             </ListBox>
@@ -558,8 +577,8 @@ foreach ($nm in 'DotMysql', 'TxtMysql', 'DotWeb', 'TxtWeb', 'WebRow', 'DotRedir'
     'SelTitle', 'SelName', 'SelPorts', 'SelStatus', 'BtnStart', 'BtnStop', 'BtnRestart', 'BtnRound', 'BtnNext', 'BtnBotsOn', 'BtnAttach', 'BtnDetach',
     'BtnBotsDn', 'BtnBotsUp', 'TxtBots', 'BtnDiff', 'BtnVeh', 'BtnHeli', 'BtnRoutes', 'BtnAutoRoutes', 'Btn3D', 'BtnScan', 'BtnLearn', 'BtnLog', 'BtnNav', 'BtnIni', 'BtnClassic', 'BtnPaths',
     'RotCount', 'RotTitle', 'RotMode', 'LstRot', 'BtnPlay', 'BtnUp', 'BtnDown', 'BtnRemove', 'BtnRounds', 'LstModes', 'ChkViet', 'LstMaps', 'BtnAdd', 'BtnReplace', 'BtnAllMode',
-    'Log', 'BtnGame') { $ui[$nm] = $win.FindName($nm) }
-foreach ($n in 1..4) { foreach ($p in 'Card', 'CardState', 'CardName', 'CardMap', 'CardPlayers', 'CardBots') { $ui["$p$n"] = $win.FindName("$p$n") } }
+    'Log', 'BtnGame', 'MapPreview', 'PreviewNone', 'PreviewName', 'PreviewSub', 'BtnPics') { $ui[$nm] = $win.FindName($nm) }
+foreach ($n in 1..4) { foreach ($p in 'Card', 'CardState', 'CardName', 'CardMap', 'CardPlayers', 'CardBots', 'CardPic', 'CardPicBox') { $ui["$p$n"] = $win.FindName("$p$n") } }
 $ui.Sub.Text = "BATTLEFIELD BAD COMPANY 2  //  OFFLINE BOTS  //  v$Version"
 
 function Brush([string]$hex) { $b = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($hex)); $b.Freeze(); $b }
@@ -653,6 +672,111 @@ function Update-Services {
         $ui[$map[$k][1]].Foreground = $(if ($on) { $cOlive } else { $cDim })
     }
     $ui.WebRow.Visibility = $(if (Has-Web) { 'Visible' } else { 'Collapsed' })
+}
+
+# ---------------------------------------------------------------- map pictures (1.7.2)
+# Each map's overhead picture is its minimap texture, read out of YOUR Bad Company 2 install (tools\thumbs\PhoenixThumbs.cs,
+# compiled here on first use) and saved as thumbs\<MAP>.png. Nothing is downloaded or shipped: no game install, no pictures.
+$thumbDir = Join-Path $PSScriptRoot 'thumbs'
+$thumbCache = @{}
+$script:thumbsTried = $false; $script:thumbsRunning = $false
+function Thumb-Base([string]$code) {
+    $s = (Level-Code $code).ToUpper()
+    foreach ($t in '_SDM', '_CQ', '_GR', '_SR', 'SDM', 'CQ', 'GR', 'SR') { if ($s.EndsWith($t) -and $s.Length -gt $t.Length + 2) { $s = $s.Substring(0, $s.Length - $t.Length); break } }
+    if ($s -match '^NAM_.*\dR$') { $s = $s.Substring(0, $s.Length - 1) }
+    # (Cold War and Heavy Metal are the campaign's levels: their overviews are SP_02's and SP_005's)
+    if ($s -eq 'MP_SP_002') { $s = 'SP_02' } elseif ($s -eq 'MP_SP_005') { $s = 'SP_005' }
+    return $s
+}
+function Get-Thumb([string]$code) {
+    if (-not $code) { return $null }
+    $b = Thumb-Base $code
+    if ($thumbCache.ContainsKey($b)) { return $thumbCache[$b] }
+    $f = Join-Path $thumbDir "$b.png"; $img = $null
+    if (-not (Test-Path $f)) { $f = Join-Path $thumbDir "$b.scan.png" }   # (drawn from Phoenix's scan when the game has none)
+    if (Test-Path $f) {
+        try {
+            $img = New-Object Windows.Media.Imaging.BitmapImage
+            $img.BeginInit(); $img.CacheOption = 'OnLoad'; $img.UriSource = New-Object Uri $f; $img.DecodePixelWidth = 256; $img.EndInit(); $img.Freeze()
+        } catch { $img = $null }
+    }
+    if ($img) { $thumbCache[$b] = $img }   # (a missing one is looked for again after the pictures are made)
+    return $img
+}
+function Game-Roots {
+    if (-not $gameExe) { return @() }
+    $g = Split-Path $gameExe
+    return @((Join-Path $g 'Package\levels'), (Join-Path $g 'Package'), (Join-Path $g 'Dist\win32\levels'), (Join-Path $g 'Dist'))
+}
+function Load-ThumbsType {
+    if ('PhoenixThumbs' -as [type]) { return $true }
+    try { Add-Type -Path (Join-Path $PSScriptRoot 'tools\thumbs\PhoenixThumbs.cs') -ErrorAction Stop; return $true }
+    catch { Say "Map pictures: the picture reader could not be built ($($_.Exception.Message))."; return $false }
+}
+# maps with no overview in the game files (or no game folder set): a picture from Phoenix's own scan, when it has one
+function Make-ScanThumbs {
+    $nav = Get-NavDir; if (-not (Test-Path $nav) -or -not (Load-ThumbsType)) { return 0 }
+    if (-not (Test-Path $thumbDir)) { New-Item -ItemType Directory -Force $thumbDir | Out-Null }
+    $made = 0; $keys = @{}
+    foreach ($o in Get-ChildItem $nav -Filter '*.objectives' -ErrorAction SilentlyContinue) {
+        $lv = (Get-Content $o.FullName -TotalCount 4 -ErrorAction SilentlyContinue | Where-Object { $_ -match '^level ' } | Select-Object -First 1) -replace '^level\s+', ''
+        if ($lv) { $keys[(Thumb-Base $lv)] = [IO.Path]::GetFileNameWithoutExtension($o.Name) }
+    }
+    foreach ($b in $keys.Keys) {
+        if ((Test-Path (Join-Path $thumbDir "$b.png")) -or (Test-Path (Join-Path $thumbDir "$b.scan.png"))) { continue }
+        $np = Join-Path $nav "$($keys[$b]).nav"
+        if (Test-Path $np) { try { if ([PhoenixThumbs]::NavThumb($np, (Join-Path $thumbDir "$b.scan.png"), 256)) { $made++ } } catch {} }
+    }
+    return $made
+}
+function Make-Thumbs([bool]$asked) {
+    if ($script:thumbsRunning) { if ($asked) { Say 'Map pictures: still working...' }; return }
+    if (-not $gameExe -or -not (Test-Path $gameExe)) {
+        $m = Make-ScanThumbs; $thumbCache.Clear(); Fill-Catalogue; Fill-Rotation
+        if ($asked) { Say "Map pictures come from your Bad Company 2 install - set BFBC2Game.exe with PATHS. ($m drawn from Phoenix's scans meanwhile.)" }
+        return
+    }
+    if (-not (Load-ThumbsType)) { return }
+    $script:thumbsTried = $true; $script:thumbsRunning = $true
+    [PhoenixThumbs]::Start([string[]](Game-Roots), $thumbDir, 256)
+    Say 'Map pictures: reading the map overviews from your Bad Company 2 files (a minute or so, once)...'
+}
+function Thumbs-Check {
+    if (-not $script:thumbsRunning) { return }
+    if ([PhoenixThumbs]::Busy) { $ui.PreviewNone.Text = "Map pictures: $([PhoenixThumbs]::Status)"; return }
+    $script:thumbsRunning = $false; $thumbCache.Clear()
+    $scan = Make-ScanThumbs
+    $n = @(Get-ChildItem $thumbDir -Filter '*.png' -ErrorAction SilentlyContinue).Count
+    Say "Map pictures: $n picture(s) ($([PhoenixThumbs]::Status)$(if ($scan) { "; $scan drawn from Phoenix's scans" }))."
+    Fill-Catalogue; Fill-Rotation; Refresh-Servers; Show-Preview $script:previewCode
+}
+# a small list row: picture (or a tile with the map's initials) + name + level code
+function Map-Row([string]$code, [string]$title, [string]$sub, [int]$px) {
+    $sp = New-Object Windows.Controls.StackPanel; $sp.Orientation = 'Horizontal'
+    $img = Get-Thumb $code
+    $box = New-Object Windows.Controls.Border; $box.Width = $px; $box.Height = $px; $box.Margin = '0,1,10,1'; $box.BorderBrush = $cEdge; $box.BorderThickness = 1
+    if ($img) { $i = New-Object Windows.Controls.Image; $i.Source = $img; $i.Stretch = 'UniformToFill'; $box.Child = $i }
+    else {
+        $box.Background = Brush '#2A2C1A'
+        $t = New-Object Windows.Controls.TextBlock; $t.Text = (($title -split '\s+' | Where-Object { $_ } | ForEach-Object { $_[0] }) -join '').ToUpper(); $t.Foreground = $cOlive
+        $t.FontSize = [Math]::Max(10, $px / 3); $t.HorizontalAlignment = 'Center'; $t.VerticalAlignment = 'Center'; $t.FontWeight = [Windows.FontWeights]::Bold; $box.Child = $t
+    }
+    [void]$sp.Children.Add($box)
+    $tx = New-Object Windows.Controls.StackPanel; $tx.VerticalAlignment = 'Center'
+    $a = New-Object Windows.Controls.TextBlock; $a.Text = $title; $a.FontSize = 14; [void]$tx.Children.Add($a)
+    $b = New-Object Windows.Controls.TextBlock; $b.Text = $sub; $b.FontSize = 11; $b.FontFamily = 'Consolas'; $b.Foreground = $cDim; [void]$tx.Children.Add($b)
+    [void]$sp.Children.Add($tx)
+    return $sp
+}
+$script:previewCode = ''
+function Show-Preview([string]$code) {
+    $script:previewCode = $code
+    if (-not $code) { $ui.MapPreview.Source = $null; $ui.PreviewName.Text = ''; $ui.PreviewSub.Text = ''; $ui.PreviewNone.Text = 'Pick a map to see it.'; return }
+    $d = Map-Def $code
+    $ui.PreviewName.Text = (Map-Name $code).ToUpper()
+    $ui.PreviewSub.Text = "$(if ($d) { Mode-Name $d[2] } else { '' })$(if ($d -and $d[3]) { ' - Vietnam' })   [$code]"
+    $img = Get-Thumb $code; $ui.MapPreview.Source = $img
+    $ui.PreviewNone.Text = if ($img) { '' } elseif ($script:thumbsRunning) { 'Map pictures: reading the game files...' } elseif (-not $gameExe) { 'No picture: set BFBC2Game.exe with PATHS and click MAP PICTURES.' } else { 'No picture for this map in your game files.' }
 }
 
 # ---------------------------------------------------------------- map lists (BC2: "MODE" line, then "Levels/<map> <rounds>")
@@ -774,6 +898,9 @@ function Refresh-Servers {
                 $pl.Text = ''
             }
         }
+        $picCode = if ($s.State -eq 'live' -and $s.Info) { Level-Code $s.Info[5] } else { $l0 = Read-List $s; if ($l0.Rows.Count) { $l0.Rows[0][0] } else { '' } }
+        $pic = Get-Thumb $picCode
+        $ui["CardPic$n"].Source = $pic; $ui["CardPicBox$n"].Visibility = $(if ($pic) { 'Visible' } else { 'Collapsed' })
         $bt.Text = switch ($s.Bots) { 'on' { 'PHOENIX BOTS ACTIVE' } 'attaching' { 'ATTACHING BOTS...' } default { if ($set["BotsOn$n"] -ne '1') { 'bots off' } elseif ($s.State -eq 'off') { 'bots attach on start' } else { 'no bots attached' } } }
         $bt.Foreground = $(if ($s.Bots -eq 'on') { $cAmber } else { $cDim })
         $ui["Card$n"].BorderBrush = $(if ($n -eq $script:sel) { $cAmber } elseif ($s.State -eq 'live') { $cOlive } else { $cEdge })
@@ -815,8 +942,8 @@ function Fill-Rotation([int]$keep = -1) {
     $ui.LstRot.Items.Clear()
     for ($i = 0; $i -lt $l.Rows.Count; $i++) {
         $r = $l.Rows[$i]
-        $tag = if ($curMap -and $r[0] -ieq $curMap) { '  << NOW' } elseif ($i -eq 0) { '  << FIRST' } else { '' }
-        [void]$ui.LstRot.Items.Add(('{0,2}  {1,-20} {2,-20} x{3}{4}' -f ($i + 1), (Map-Name $r[0]), $r[0], $r[1], $tag))
+        $tag = if ($curMap -and $r[0] -ieq $curMap) { '   - NOW' } elseif ($i -eq 0) { '   - FIRST' } else { '' }
+        [void]$ui.LstRot.Items.Add((Map-Row $r[0] ("{0}. {1}{2}" -f ($i + 1), (Map-Name $r[0]), $tag) ("{0}   x{1} round(s)" -f $r[0], $r[1]) 40))
     }
     $ui.RotCount.Text = "$($l.Rows.Count) MAPS"
     $ui.RotMode.Text = "MODE: $((Mode-Name $l.Mode).ToUpper())$(if (@($l.Rows | Where-Object { $_[0] -like 'NAM_*' }).Count) { '   (VIETNAM)' })"
@@ -909,7 +1036,7 @@ function Fill-Catalogue {
     $ui.LstMaps.Items.Clear(); $script:shown = @()
     foreach ($d in $mapDefs) {
         if ($d[2] -ne $m[0] -or [bool]$d[3] -ne $viet) { continue }
-        [void]$ui.LstMaps.Items.Add(('{0}   ({1})' -f $d[1], $d[0])); $script:shown += , $d
+        [void]$ui.LstMaps.Items.Add((Map-Row $d[0] $d[1] $d[0] 48)); $script:shown += , $d
     }
 }
 foreach ($m in $modes) { [void]$ui.LstModes.Items.Add($(if ($m[2]) { "$([char]0x2605) $($m[1])" } else { $m[1] })) }
@@ -917,6 +1044,9 @@ $ui.LstModes.SelectedIndex = 0
 Fill-Catalogue
 $ui.LstModes.Add_SelectionChanged({ Fill-Catalogue })
 $ui.ChkViet.Add_Click({ Fill-Catalogue })
+$ui.LstMaps.Add_SelectionChanged({ $i = $ui.LstMaps.SelectedIndex; if ($i -ge 0 -and $i -lt $script:shown.Count) { Show-Preview $script:shown[$i][0] } })
+$ui.LstRot.Add_SelectionChanged({ $i = $ui.LstRot.SelectedIndex; if ($i -ge 0) { $l = Read-List (Cur-Srv); if ($i -lt $l.Rows.Count) { Show-Preview $l.Rows[$i][0] } } })
+$ui.BtnPics.Add_Click({ Safe { $thumbCache.Clear(); Make-Thumbs $true } })
 
 foreach ($n in 1..4) { $ui["Card$n"].Add_Click({ $t = [int]$this.Tag; Safe { Select-Server $t } }) }
 $ui.BtnBackStart.Add_Click({ Safe { if (Start-Backend) { Say 'Backend running: MySQL, redirector, BC2 emulator.' } } })
@@ -954,6 +1084,7 @@ $ui.BtnPaths.Add_Click({ Safe {
     if ($g) { $script:gameExe = $g; $set.Game = $g }
     Save-Settings; Load-Servers; Refresh-Servers; Fill-Rotation; Update-Services
     Say "Server folder: $server   Game: $(if ($gameExe) { $gameExe } else { 'not set' })"
+    if ($g) { $thumbCache.Clear(); Make-Thumbs $false }
 } })
 $ui.BtnGame.Add_Click({ Safe {
     if (-not $gameExe -or -not (Test-Path $gameExe)) {
@@ -1183,6 +1314,7 @@ $timer.Add_Tick({
         if ($attachJobs.Count -or $pendingAttach.Count -or ($script:tick % 2 -eq 0)) { Refresh-Servers }
         Bots-Check
         if ($script:scan) { Scan-Step }
+        Thumbs-Check
         if ($script:tick % 4 -eq 0) { Update-Services }
     } catch {} finally { $script:busy = $false }
 })
@@ -1191,6 +1323,9 @@ $win.Add_ContentRendered({
     if (-not (Test-Path $server)) { Say "BC2 server folder not found ($server) - click PATHS." }
     elseif (-not (Test-Path $attachExe)) { Say 'bin\PhoenixAttach.exe is missing - unpack the whole Project Phoenix folder.' }
     else { Say "Ready. Server folder: $server" }
+    Show-Preview ''
+    # map pictures: made once from the game files (again with MAP PICTURES)
+    if (-not @(Get-ChildItem $thumbDir -Filter '*.png' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*.scan.png' }).Count) { Make-Thumbs $false }
     $timer.Start()
 })
 $win.Add_Closed({

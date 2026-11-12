@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.7.1** (release 1.6). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.7.2** (release 1.7). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -90,7 +90,8 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 - **Phoenix-Launcher.bat** (1.7.0): the new launcher in Bad Company 2's olive, sand and amber. Backend lights and
   start / stop (MySQL, redirector, BC2 emulator), servers 1 - 4 with live map, mode and players, start / stop / next map,
   bots that attach by themselves when a server's level is up, the bot settings, each server's map list (mode, Vietnam,
-  order, rounds, play next) and the tools below.
+  order, rounds, play next) and the tools below. Every map has a picture (1.7.2): its overhead map, made on your PC from
+  your own game files.
 - **3D map + route editor** (`tools/Map3D`, 1.7.0): the "lidar" scan the bots make of each map as a 3D point cloud in your
   browser, with the flags (by their game names), every Rush stage's M-COMs, spawns, vehicles, roads and every route.
 - **Map scanner** (1.7.1): **SCAN ALL MAPS** in the launcher plays every map once with Phoenix in scan mode (no bots) so
@@ -229,6 +230,7 @@ Without MinGW, on Windows with LLVM clang and the Visual Studio 2022 Build Tools
 | `src/` | Navigation grid and A* (`nav.c`), the player observer and the simulation-tick hook |
 | `harness/` | An offline test harness. A mock BC2 server and game simulation run the real runtime on Linux |
 | `tools/Map3D/` | The 3D map and route editor (Node.js server + three.js page) |
+| `tools/thumbs/` | `PhoenixThumbs.cs`: makes the launcher's map pictures from your own game files (compiled by the launcher) |
 | `Phoenix-Launcher.ps1` | The launcher (PowerShell + WPF); `PHOENIX_LAUNCHER_TEST=1` prints what it finds |
 | `viewer/` | The learning map (`learn-viewer.html`; `LearnViewer.html` is the standalone copy) |
 | `backend/` | Bot accounts for the BF-Portable database |

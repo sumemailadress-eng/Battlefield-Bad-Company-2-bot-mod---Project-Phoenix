@@ -7,3 +7,4 @@ harness/phoenix_harness
 # generated navigation caches (per-map, machine-specific)
 navcache/
 *.dscan
+/thumbs/

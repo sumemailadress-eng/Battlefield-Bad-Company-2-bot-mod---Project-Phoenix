@@ -20,7 +20,7 @@
 const http = require('http'), fs = require('fs'), path = require('path');
 const { findOverhead } = require('./overhead.js');   // bridges and beams
 
-const VERSION = '1.7.1';   // (the launcher restarts an older 3D map server it finds running)
+const VERSION = '1.7.2';   // (the launcher restarts an older 3D map server it finds running)
 const SERVER = path.join(__dirname, '..', '..');   // (the Phoenix folder: tools\Map3D is inside it)
 const PORT = +(process.argv[3] || 8644);
 function iniValue(file, key) {
