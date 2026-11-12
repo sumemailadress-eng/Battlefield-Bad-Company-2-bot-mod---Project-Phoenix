@@ -144,6 +144,42 @@ const read = f => { try { return fs.readFileSync(f, 'utf8'); } catch (e) { retur
 const exitsFile = m => path.join(LEARN, m + '.exits');
 const vehiclesFile = m => path.join(LEARN, m + '.vehicles');   // where vehicles stood at round start, written by the bots: "veh <name> x y z yaw <rounds seen>" (read only)
 const learnFile = m => path.join(LEARN, m + '.3dlearn'), vFile = m => path.join(LEARN, m + '.vroutes'), pFile = m => path.join(ROUTES, m + '.froutes'), lvFile = m => path.join(LEARN, m + '.routes');
+// Map names. The bots name a map in <map>.objectives (1.7.0); older maps are named from the first line of their .learn
+// file ("... learned on Levels/MP_006 - Arica Harbor (key)") or the .froutes header. A <map>.name file (one line) wins. The mode comes from the level name
+// the way Phoenix reads it: ..CQ Conquest, ..GR Rush, ..SR Squad Rush, ..SDM Squad Deathmatch; a plain MP_00x level is
+// Conquest when its number is odd (MP_001 Panama Canal, MP_005 Atacama) and Rush when even (MP_002 Valparaiso, MP_006 Arica).
+const BC2_MAPS = [['NAM_MP_002', 'Vantage Point'], ['NAM_MP_003', 'Hill 137'], ['NAM_MP_005', 'Cao Son Temple'], ['NAM_MP_006', 'Phu Bai Valley'],
+    ['NAM_MP_007', 'Operation Hastings'], ['MP_SP_002', 'Cold War'], ['MP_SP_005', 'Heavy Metal'], ['BC1_OASIS', 'Oasis'], ['BC1_HARVEST', 'Harvest Day'],
+    ['MP_001', 'Panama Canal'], ['MP_002', 'Valparaiso'], ['MP_003', 'Laguna Alta'], ['MP_004', 'Isla Inocentes'], ['MP_005', 'Atacama Desert'],
+    ['MP_006', 'Arica Harbor'], ['MP_007', 'White Pass'], ['MP_008', 'Nelson Bay'], ['MP_009', 'Laguna Presa'], ['MP_012', 'Port Valdez']];
+function bc2Mode(code) {
+    const u = code.toUpperCase();
+    if (/SDM$/.test(u)) return 'Squad Deathmatch';
+    if (/SR$/.test(u)) return 'Squad Rush';
+    if (/GR$/.test(u)) return 'Rush';
+    if (/CQ$/.test(u)) return 'Conquest';
+    const d = u.match(/(\d)$/); return d ? (+d[1] % 2 ? 'Conquest' : 'Rush') : '';
+}
+function mapLabel(map) {
+    const own = (read(path.join(NAV, map + '.name')) || '').split(/\r?\n/)[0].trim();   // (a one-line name you can write yourself)
+    if (own) return own;
+    let level = '', name = '';
+    const ob = read(path.join(NAV, map + '.objectives'));
+    if (ob) for (const l of ob.split(/\r?\n/)) { if (l.startsWith('level ')) level = l.slice(6).trim(); else if (l.startsWith('name ')) name = l.slice(5).trim(); }
+    if (!level) {
+        const lt = read(path.join(NAV, map + '.learn')); const m = lt && lt.match(/learned on (.*?) \(/);
+        if (m) { const p = m[1].split(' - '); if (/^levels\//i.test(p[0])) { level = p[0]; name = name || p.slice(1).join(' - '); } }
+    }
+    if (!level && !name) {
+        const ft = read(pFile(map)); const m = ft && ft.match(/foot routes for \S+ \(([^)]*)\)/);
+        if (m) { if (/^levels\//i.test(m[1])) level = m[1]; else name = m[1]; }
+    }
+    const code = level.replace(/^levels\//i, '');
+    if (!name && code) { const hit = BC2_MAPS.find(([c]) => code.toUpperCase().startsWith(c)); if (hit) name = hit[1]; }
+    if (!name && !code) return '';
+    const mode = code ? bc2Mode(code) : '';
+    return (name || code) + (mode ? ' - ' + mode : '') + (code ? '  [' + code + ']' : '');
+}
 function reportData(map) {   // Phoenix: <map>.objectives (flags / M-COMs / spawns, written by the bots)
     const t = read(path.join(NAV, map + '.objectives')); const flags = [], spawns = []; let name = '';
     if (t) for (const l of t.split(/\r?\n/)) {
@@ -275,7 +311,7 @@ const server = http.createServer((req, res) => {
         if (u.pathname === '/' || u.pathname === '/index.html') return send(res, 200, 'text/html; charset=utf-8', fs.readFileSync(path.join(__dirname, 'index.html')));
         if (u.pathname === '/api/maps') {   // every scanned map in navcache, named from its .objectives file
             const maps = fs.readdirSync(NAV).filter(f => f.endsWith('.nav')).map(f => f.slice(0, -4)).filter(safeMap).sort();
-            const names = {}; for (const m of maps) { const n = reportData(m).name; if (n) names[m] = n; }
+            const names = {}; for (const m of maps) { const n = mapLabel(m); if (n) names[m] = n; }
             return send(res, 200, 'application/json', JSON.stringify({ server: NAV, maps, names, live: liveMap(), limits: LIMITS, features: FEATURES }));
         }
         // the map's own top-down image, read from this PC's game files (textures\\<map>.jpg + .json: re\\scripts\\fb_minimap.py)

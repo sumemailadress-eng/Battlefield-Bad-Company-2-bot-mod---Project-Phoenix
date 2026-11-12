@@ -99,14 +99,14 @@ addEventListener('resize', resize); resize();
 
 // ---- maps
 const info = await (await fetch('/api/maps')).json(); limits = info.limits;
-const NAMES = info.names || {};   // (Phoenix: from each map's .objectives file)
+const NAMES = info.names || {};   // (Phoenix: "Arica Harbor - Rush  [MP_006]", from each map's .objectives / .learn file)
 const mapName = m => NAMES[m] || null;
 // what this bot mod reads: Phoenix has no water-exit file, and its .learn file is its own format (no learned routes here)
 const FEAT = info.features || { veh: true, exits: false, learn: false };
 if (FEAT.learn === false) { $('rlearn').parentElement.style.display = 'none'; $('newType').querySelectorAll('option[value^="learn"]').forEach(o => o.remove()); }
 if (!FEAT.exits) { for (const id of ['tExit', 'helpExits']) $(id).style.display = 'none'; $('sExits').parentElement.style.display = 'none'; }
 if (!FEAT.veh) { $('rveh').parentElement.style.display = 'none'; $('newType').querySelector('option[value="veh"]').remove(); }
-for (const m of [...info.maps].sort((a, b) => (mapName(a) || a).localeCompare(mapName(b) || b))) $('map').add(new Option((mapName(m) ? mapName(m) + '  (' + m + ')' : m) + (m === info.live ? '  - running now' : ''), m));
+for (const m of [...info.maps].sort((a, b) => (mapName(a) || a).localeCompare(mapName(b) || b))) $('map').add(new Option((mapName(m) || 'Map not named yet (' + m + ') - play it once with 1.7.0') + (m === info.live ? '  - running now' : ''), m));
 const last = (() => { try { return localStorage.getItem('phx3d.map'); } catch (e) { return null; } })();
 $('map').value = info.maps.includes(last) ? last : info.live || info.maps[0];
 $('loadBtn').onclick = () => loadMap($('map').value);
