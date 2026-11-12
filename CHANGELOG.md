@@ -39,6 +39,10 @@ Start-Bots.bat attaches.
 - **Another mode or BC2/Vietnam no longer just refuses:** BC2 runs one mode per list, so adding Rush maps to a Conquest
   list (or Vietnam maps to a BC2 list) now asks whether to start a new list with the maps you picked.
 - The status bar says how many picked maps were already in the list.
+- **Latest navigation data included.** Vehicle routes now ship for Panama Canal, White Pass, Laguna Presa, Arica Harbor
+  (Rush), Phu Bai Valley and Operation Hastings, besides Atacama Desert and Port Valdez. The package's navcache has
+  every map's current grid, vehicle scan, roads, foot routes, objectives and learned data, including Laguna Presa
+  Conquest (new).
 
 ## What changed in 1.7.7 - tanks fire further, drivers take another road when one is blocked
 
