@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "bc2_observe.h"
 
-#define PHX_VERSION "1.7.0"
+#define PHX_VERSION "1.7.1"
 #define MAX_BOTS 48
 #define MAX_CPS 16
 #define MAX_SPAWNS 64
@@ -51,6 +51,7 @@ typedef struct PhxConfig {
     /* 1.7.0 */
     int routes;             /* bots follow the route network: PhoenixNavcache\\<map>.froutes / .vroutes (Routes=1) */
     int autoRoutes;         /* plan the missing spawn/objective foot routes in the background and save them (AutoRoutes=1) */
+    int scanMode;           /* 1.7.1 map scanner: no bots, the map is surveyed flat out (ScanMode=1; the launcher sets it) */
 } PhxConfig;
 extern PhxConfig g_cfg;
 
@@ -126,6 +127,9 @@ typedef struct World {
     VehicleInfo veh[MAX_VEH]; int vehCount;
     VehicleSpawner vspawn[MAX_VSPAWN]; int vspawnCount;
     char levelName[64], mapName[48];   /* e.g. Levels/MP_006CQ, Arica Harbor (if found in the level object) */
+    /* 1.7.1 Rush / Squad Rush: every stage's M-COMs (the game lists all of them at the start), stage 1 = nearest the
+       attackers' first base - for the 3D map; bots still only play the stage that is on */
+    struct { float pos[3]; int stage, sub; } mcomAll[32]; int mcomAllN, mcomDefender;
 } World;
 extern World g_world;
 
@@ -179,7 +183,8 @@ int  navg_path_vehicle(int owner, const float *from, const float *to, float *out
 float navg_vehicle_gap(void);       /* 1.6.6: last vehicle route: metres from its end to the flag (off-road flag) */
 int  navg_vehicle_partial(void);    /* 1.6.6: last vehicle route is a partial one (search ran out) */
 int  navg_drive_line_ok(const float *a, const float *b);   /* 1.6.6: the straight line stays on the drive map */
-float navg_ground_at(float x, float z);   /* 1.7.0: the highest walkable surface in that cell (NaN = none) */
+float navg_ground_at(float x, float z);
+void navg_scan_state(int *pct, int *grid, int *stairs, int *vscan);   /* 1.7.1: how far the map survey is */   /* 1.7.0: the highest walkable surface in that cell (NaN = none) */
 void rt_nav_cache_path(const char *key, char *out, unsigned size);   /* module / harness */
 const char *navg_key(void);
 /* routenet.c (1.7.0) */

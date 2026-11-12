@@ -60,6 +60,13 @@ void navg_reset(void)
 }
 
 int navg_ready(void) { return g_grid && g_gridDone; }
+void navg_scan_state(int *pct, int *grid, int *stairs, int *vscan)
+{
+    *grid = g_grid && g_gridDone; *stairs = *grid && g_stairsDone; *vscan = g_dscanDone;
+    if (!g_grid) *pct = 0;
+    else if (g_gridDone) *pct = 100;
+    else { int n = g_grid->w * g_grid->h; *pct = (int)(g_grid->phase == 0 ? 30.0f * g_grid->cursor / n : 30.0f + 70.0f * g_grid->cursor / (4.0f * n)); if (*pct > 99) *pct = 99; }
+}
 const char *navg_key(void) { return g_key; }
 const char *navg_last_error(void) { const char *e = nav_last_error(); return e && e[0] ? e : "no reason given"; }
 NavGrid *navg_grid(void) { return navg_ready() ? g_grid : NULL; }
@@ -89,7 +96,7 @@ static void navg_maintain(double now)
 {
     if (!g_stairsDone) {
         int removed = 0;
-        if (nav_fix_stairs_step(g_grid, nav_ray, 2500, &removed)) {
+        if (nav_fix_stairs_step(g_grid, nav_ray, g_cfg.scanMode ? 25000 : 2500, &removed)) {
             g_stairsDone = 1;
             rt_log("nav: stair re-check done - %d false staircase link(s) removed, %d restored, %d staircase(s) added, %d rail top(s) dropped",
                    removed, nav_stairs_restored(), nav_stairs_added(), nav_rails_removed());
@@ -534,7 +541,7 @@ void navg_tick(double now)
 {
     if (!g_cfg.navBuild) return;
     nav_process_paths(1.5);
-    if (g_cfg.vehicles && g_gridDone && g_stairsDone) dscan_step(600);
+    if (g_cfg.vehicles && g_gridDone && g_stairsDone) dscan_step(g_cfg.scanMode ? 8000 : 600);
     if (g_failed) return;
     if (!g_grid) {
         /* wait until the level is settled and its layout is known */

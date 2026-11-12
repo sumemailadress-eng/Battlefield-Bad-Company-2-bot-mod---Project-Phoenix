@@ -10,7 +10,7 @@
 # map list format (a mode line, then "Levels/<map> <rounds>").
 param([string]$Portable = '')
 $ErrorActionPreference = 'Continue'
-$Version = '1.7.0'
+$Version = '1.7.1'
 
 # ---------------------------------------------------------------- launcher settings
 $setPath = Join-Path $PSScriptRoot 'Phoenix-Launcher.ini'
@@ -62,8 +62,11 @@ $mapDefs = @(
     @('MP_007SDM', 'White Pass', 'SQDM', 0), @('MP_008SDM', 'Nelson Bay', 'SQDM', 0), @('MP_009SDM', 'Laguna Presa', 'SQDM', 0),
     @('BC1_Harvest_Day_SDM', 'Harvest Day', 'SQDM', 0), @('BC1_Oasis_SDM', 'Oasis', 'SQDM', 0), @('MP_SP_002SDM', 'Cold War', 'SQDM', 0),
     @('MP_SP_005SDM', 'Heavy Metal', 'SQDM', 0),
-    @('NAM_MP_002CQ', 'Vantage Point', 'CONQUEST', 1), @('NAM_MP_003CQ', 'Hill 137', 'CONQUEST', 1), @('NAM_MP_005CQ', 'Cao Son Temple', 'CONQUEST', 1),
-    @('NAM_MP_006CQ', 'Phu Bai Valley', 'CONQUEST', 1), @('NAM_MP_007CQ', 'Operation Hastings', 'CONQUEST', 1)
+    @('NAM_MP_002CQ', 'Vantage Point', 'CONQUEST', 1), @('NAM_MP_002R', 'Vantage Point', 'RUSH', 1), @('NAM_MP_002SR', 'Vantage Point', 'SQRUSH', 1), @('NAM_MP_002SDM', 'Vantage Point', 'SQDM', 1),
+    @('NAM_MP_003CQ', 'Hill 137', 'CONQUEST', 1), @('NAM_MP_003R', 'Hill 137', 'RUSH', 1), @('NAM_MP_003SR', 'Hill 137', 'SQRUSH', 1), @('NAM_MP_003SDM', 'Hill 137', 'SQDM', 1),
+    @('NAM_MP_005CQ', 'Cao Son Temple', 'CONQUEST', 1), @('NAM_MP_005R', 'Cao Son Temple', 'RUSH', 1), @('NAM_MP_005SR', 'Cao Son Temple', 'SQRUSH', 1), @('NAM_MP_005SDM', 'Cao Son Temple', 'SQDM', 1),
+    @('NAM_MP_006CQ', 'Phu Bai Valley', 'CONQUEST', 1), @('NAM_MP_006R', 'Phu Bai Valley', 'RUSH', 1), @('NAM_MP_006SR', 'Phu Bai Valley', 'SQRUSH', 1), @('NAM_MP_006SDM', 'Phu Bai Valley', 'SQDM', 1),
+    @('NAM_MP_007CQ', 'Operation Hastings', 'CONQUEST', 1), @('NAM_MP_007R', 'Operation Hastings', 'RUSH', 1), @('NAM_MP_007SR', 'Operation Hastings', 'SQRUSH', 1), @('NAM_MP_007SDM', 'Operation Hastings', 'SQDM', 1)
 )
 # mode key, name, bots play the objectives (1) or just fight (0)
 $modes = @(@('CONQUEST', 'Conquest', 1), @('RUSH', 'Rush', 1), @('SQRUSH', 'Squad Rush', 1), @('SQDM', 'Squad Deathmatch', 0))
@@ -481,6 +484,7 @@ $xamlText = @'
               <TextBlock Text="TOOLS" Style="{StaticResource Lbl}" Margin="0,6,0,4"/>
               <WrapPanel>
                 <Button x:Name="Btn3D" Style="{StaticResource ABtn}" Content="3D MAP + ROUTE EDITOR"/>
+                <Button x:Name="BtnScan" Style="{StaticResource ABtn}" Content="SCAN ALL MAPS"/>
                 <Button x:Name="BtnLearn" Style="{StaticResource Btn}" Content="LEARN VIEWER"/>
                 <Button x:Name="BtnLog" Style="{StaticResource Btn}" Content="BOT LOG"/>
                 <Button x:Name="BtnNav" Style="{StaticResource Btn}" Content="NAVCACHE"/>
@@ -521,7 +525,7 @@ $xamlText = @'
             <ListBox DockPanel.Dock="Top" x:Name="LstModes" Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource Chip}">
               <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
             </ListBox>
-            <CheckBox DockPanel.Dock="Top" x:Name="ChkViet" Content="Vietnam (Conquest)" Foreground="#ECE4CA" Margin="0,2,0,8"/>
+            <CheckBox DockPanel.Dock="Top" x:Name="ChkViet" Content="Vietnam maps" Foreground="#ECE4CA" Margin="0,2,0,8"/>
             <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
               <WrapPanel>
                 <Button x:Name="BtnAdd" Style="{StaticResource ABtn}" Content="ADD TO LIST"/>
@@ -552,7 +556,7 @@ try { $win = [Windows.Markup.XamlReader]::Parse($xamlText) } catch { Write-Host 
 $ui = @{}
 foreach ($nm in 'DotMysql', 'TxtMysql', 'DotWeb', 'TxtWeb', 'WebRow', 'DotRedir', 'TxtRedir', 'DotEmu', 'TxtEmu', 'BtnBackStart', 'BtnBackStop', 'Sub',
     'SelTitle', 'SelName', 'SelPorts', 'SelStatus', 'BtnStart', 'BtnStop', 'BtnRestart', 'BtnRound', 'BtnNext', 'BtnBotsOn', 'BtnAttach', 'BtnDetach',
-    'BtnBotsDn', 'BtnBotsUp', 'TxtBots', 'BtnDiff', 'BtnVeh', 'BtnHeli', 'BtnRoutes', 'BtnAutoRoutes', 'Btn3D', 'BtnLearn', 'BtnLog', 'BtnNav', 'BtnIni', 'BtnClassic', 'BtnPaths',
+    'BtnBotsDn', 'BtnBotsUp', 'TxtBots', 'BtnDiff', 'BtnVeh', 'BtnHeli', 'BtnRoutes', 'BtnAutoRoutes', 'Btn3D', 'BtnScan', 'BtnLearn', 'BtnLog', 'BtnNav', 'BtnIni', 'BtnClassic', 'BtnPaths',
     'RotCount', 'RotTitle', 'RotMode', 'LstRot', 'BtnPlay', 'BtnUp', 'BtnDown', 'BtnRemove', 'BtnRounds', 'LstModes', 'ChkViet', 'LstMaps', 'BtnAdd', 'BtnReplace', 'BtnAllMode',
     'Log', 'BtnGame') { $ui[$nm] = $win.FindName($nm) }
 foreach ($n in 1..4) { foreach ($p in 'Card', 'CardState', 'CardName', 'CardMap', 'CardPlayers', 'CardBots') { $ui["$p$n"] = $win.FindName("$p$n") } }
@@ -863,6 +867,13 @@ function Find-Node {
 }
 function Show-3D {
     $url = "http://localhost:$map3dPort/"
+    if (Port-Open $map3dPort) {   # a 3D map server from an older version still running: replace it
+        $v = $null; try { $v = (Invoke-RestMethod -Uri "$($url)api/maps" -TimeoutSec 3).version } catch {}
+        if ($v -ne $Version) {
+            try { Get-NetTCPConnection -LocalPort $map3dPort -State Listen -ErrorAction Stop | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } } catch {}
+            for ($i = 0; $i -lt 20 -and (Port-Open $map3dPort); $i++) { Wait-Ms 200 }
+        }
+    }
     if (-not (Port-Open $map3dPort)) {
         $node = Find-Node
         if (-not $node) { Say 'The 3D map needs Node.js (nodejs.org, the LTS installer) - then click 3D MAP again.'; return }
@@ -904,8 +915,8 @@ function Fill-Catalogue {
 foreach ($m in $modes) { [void]$ui.LstModes.Items.Add($(if ($m[2]) { "$([char]0x2605) $($m[1])" } else { $m[1] })) }
 $ui.LstModes.SelectedIndex = 0
 Fill-Catalogue
-$ui.LstModes.Add_SelectionChanged({ if ($ui.ChkViet.IsChecked -and (Sel-Mode)[0] -ne 'CONQUEST') { $ui.ChkViet.IsChecked = $false }; Fill-Catalogue })
-$ui.ChkViet.Add_Click({ if ($ui.ChkViet.IsChecked) { $ui.LstModes.SelectedIndex = 0 }; Fill-Catalogue })
+$ui.LstModes.Add_SelectionChanged({ Fill-Catalogue })
+$ui.ChkViet.Add_Click({ Fill-Catalogue })
 
 foreach ($n in 1..4) { $ui["Card$n"].Add_Click({ $t = [int]$this.Tag; Safe { Select-Server $t } }) }
 $ui.BtnBackStart.Add_Click({ Safe { if (Start-Backend) { Say 'Backend running: MySQL, redirector, BC2 emulator.' } } })
@@ -1022,6 +1033,144 @@ $ui.BtnAllMode.Add_Click({ Safe {
     Say "Server ${script:sel}: list now plays $($m[1])$(if ($dropped) { " ($dropped map(s) without it left out)" })."
 } })
 
+# ---------------------------------------------------------------- map scanner (1.7.1)
+# Plays every map once on the selected server with Phoenix in scan mode (ScanMode=1: no bots, the survey runs flat out) so
+# the 3D map has every map: the scan (grid, stairs, vehicle scan), the flags or every Rush stage's M-COMs, the spawns and
+# the vehicles. BC2 plays one mode per map list, so it runs one pass per mode (Vietnam last: it needs GameModID = VIETNAM);
+# the server is restarted for each pass. The DLL writes navcache\scan.txt; when it says "done 1" for the map being played
+# the launcher moves the server on (mapList.nextLevelIndex + admin.runNextLevel). The map list, ServerOptions.ini and
+# phoenix.ini are put back at the end (or when the scan is stopped).
+$script:scan = $null
+function Read-KV([string]$path) {
+    $h = @{}; if (Test-Path $path) { foreach ($l in Get-Content $path -ErrorAction SilentlyContinue) { if ($l -match '^(\S+)\s+(.*)$') { $h[$Matches[1]] = $Matches[2].Trim() } } }
+    return $h
+}
+# the level codes already scanned: their grid, their objectives (and their vehicle scan when bots use vehicles) are on disk
+function Get-ScannedCodes {
+    $nav = Get-NavDir; $done = @{}
+    if (-not (Test-Path $nav)) { return $done }
+    $needVeh = (Ini-Get 'Vehicles' '2') -ne '0'
+    foreach ($o in Get-ChildItem $nav -Filter '*.objectives' -ErrorAction SilentlyContinue) {
+        $key = [IO.Path]::GetFileNameWithoutExtension($o.Name)
+        if (-not (Test-Path (Join-Path $nav "$key.nav"))) { continue }
+        if ($needVeh -and -not (Test-Path (Join-Path $nav "$key.dscan"))) { continue }
+        $t = Get-Content $o.FullName -ErrorAction SilentlyContinue
+        $lv = ($t | Where-Object { $_ -match '^level ' } | Select-Object -First 1) -replace '^level\s+', ''
+        $code = Level-Code $lv
+        if (-not $code) { continue }
+        $hasObj = [bool]($t | Where-Object { $_ -match '^(flag|mcom) ' })
+        $isDm = $code -match 'SDM$'
+        if ($hasObj -or ($isDm -and ($t | Where-Object { $_ -match '^spawn ' }))) { $done[$code.ToUpper()] = $true }
+    }
+    return $done
+}
+function Scan-Plan([bool]$all) {
+    $done = if ($all) { @{} } else { Get-ScannedCodes }
+    $passes = @()
+    foreach ($pass in @(@('CONQUEST', 0), @('RUSH', 0), @('SQRUSH', 0), @('SQDM', 0), @('CONQUEST', 1), @('RUSH', 1), @('SQRUSH', 1), @('SQDM', 1))) {
+        $maps = @($mapDefs | Where-Object { $_[2] -eq $pass[0] -and $_[3] -eq $pass[1] -and -not $done[$_[0].ToUpper()] } | ForEach-Object { $_[0] })
+        if ($maps.Count) { $passes += , @{ Mode = $pass[0]; Viet = [bool]$pass[1]; Maps = $maps } }
+    }
+    return , $passes
+}
+function Scan-Start {
+    $s = Cur-Srv; $n = $s.N
+    if (-not (Test-Path $s.Bat)) { Say "Server ${n}: $(Split-Path $s.Bat -Leaf) not found - click PATHS."; return }
+    $todo = Scan-Plan $false; $every = Scan-Plan $true
+    $cTodo = ($todo | ForEach-Object { $_.Maps.Count } | Measure-Object -Sum).Sum; $cAll = ($every | ForEach-Object { $_.Maps.Count } | Measure-Object -Sum).Sum
+    $msg = "Scan maps on server $n?`n`nYES: the $cTodo map(s) not scanned yet`nNO: all $cAll maps again`n`n" +
+           "Each map takes about 2 - 8 minutes (a new map longest). Server $n is restarted for each mode (Conquest, Rush, Squad Rush, Squad Deathmatch, then the same for Vietnam) and runs with no bots. " +
+           "Its map list, ServerOptions.ini and phoenix.ini are put back afterwards. You can stop the scan at any time with STOP SCAN."
+    $a = [Windows.MessageBox]::Show($msg, 'Project Phoenix - scan all maps', 'YesNoCancel', 'Question')
+    if ("$a" -eq 'Cancel') { return }
+    $plan = if ("$a" -eq 'No') { $every } else { $todo }
+    if (-not $plan.Count) { Say 'Every map is scanned already. (Use NO in the question to scan them all again.)'; return }
+    $script:scan = @{
+        N = $n; Passes = $plan; Pass = -1; Idx = 0; Phase = 'pass'; MapSince = Get-Date; Ok = @(); Failed = @(); Total = ($plan | ForEach-Object { $_.Maps.Count } | Measure-Object -Sum).Sum
+        List = $(if (Test-Path $s.MapList) { [IO.File]::ReadAllText($s.MapList) } else { $null })
+        Options = $(if (Test-Path $s.Options) { [IO.File]::ReadAllText($s.Options) } else { $null })
+        ScanIni = Ini-Get 'ScanMode' '0'; WasLive = ($s.State -ne 'off'); Restarts = 0
+    }
+    $ui.BtnScan.Content = 'STOP SCAN'
+    Say "Map scan: $($script:scan.Total) map(s) in $($plan.Count) pass(es) on server $n."
+    Scan-Step
+}
+function Scan-Status { $p = Join-Path (Get-NavDir) 'scan.txt'; Read-KV $p }
+function Scan-PassStart {
+    $sc = $script:scan; $s = $srv[$sc.N]; $pass = $sc.Passes[$sc.Pass]
+    if ($s.State -ne 'off') { Stop-Bc2 $sc.N }
+    $maps = @($pass.Maps[$sc.Idx..($pass.Maps.Count - 1)])
+    $s.State = 'off'   # (so Write-List doesn't ask a server that is going away to reload)
+    Write-List $s @{ Mode = $pass.Mode; Rows = @($maps | ForEach-Object { , @($_, '1') }) }
+    Ini-Set 'ScanMode' '1' 'Scanner'
+    Remove-Item (Join-Path (Get-NavDir) 'scan.txt') -ErrorAction SilentlyContinue
+    Say "Map scan: $(Mode-Name $pass.Mode)$(if ($pass.Viet) { ' (Vietnam)' }) - $($maps.Count) map(s); starting server $($sc.N)..."
+    $sc.ListStart = $sc.Idx
+    Start-Bc2 $sc.N
+    $pendingAttach[$sc.N] = (Get-Date).AddMinutes(6)
+    $sc.Phase = 'wait'; $sc.MapSince = Get-Date
+}
+function Scan-Advance([string]$why) {
+    $sc = $script:scan; $pass = $sc.Passes[$sc.Pass]; $code = $pass.Maps[$sc.Idx]
+    if ($why -eq 'ok') { $sc.Ok += $code } else { $sc.Failed += "$code ($why)" }
+    $sc.Idx++
+    if ($sc.Idx -ge $pass.Maps.Count) { $sc.Phase = 'pass'; Scan-Step; return }
+    $s = $srv[$sc.N]
+    # the server's list starts at the map the pass (or its restart) started on
+    $r = Invoke-Rcon $s @(@('mapList.nextLevelIndex', [string]($sc.Idx - $sc.ListStart)), @('admin.runNextLevel'))
+    if (-not $r) { Say "Map scan: server $($sc.N) did not answer - restarting it on the next map."; $sc.Restarts++; Scan-PassStart; return }
+    Remove-Item (Join-Path (Get-NavDir) 'scan.txt') -ErrorAction SilentlyContinue
+    $sc.MapSince = Get-Date
+}
+function Scan-Finish([string]$why) {
+    $sc = $script:scan; if (-not $sc) { return }
+    $script:scan = $null
+    $s = $srv[$sc.N]
+    $pendingAttach.Remove($sc.N)
+    if ($s.Pid) { Stop-Bc2 $sc.N }
+    if ($null -ne $sc.List) { [IO.File]::WriteAllText($s.MapList, $sc.List) }
+    if ($null -ne $sc.Options) { [IO.File]::WriteAllText($s.Options, $sc.Options) }
+    Ini-Set 'ScanMode' $(if ($sc.ScanIni -eq '1') { '1' } else { '0' }) 'Scanner'
+    $ui.BtnScan.Content = 'SCAN ALL MAPS'
+    Say "Map scan $why`: $($sc.Ok.Count) map(s) scanned$(if ($sc.Failed.Count) { ", $($sc.Failed.Count) not: $($sc.Failed -join ', ')" }). Map list and settings put back - open the 3D MAP."
+    Refresh-Servers; Fill-Rotation
+}
+function Scan-Step {
+    $sc = $script:scan; if (-not $sc) { return }
+    if ($sc.Phase -eq 'pass') {
+        $sc.Pass++; $sc.Idx = 0
+        if ($sc.Pass -ge $sc.Passes.Count) { Scan-Finish 'finished'; return }
+        Scan-PassStart; return
+    }
+    $s = $srv[$sc.N]; $pass = $sc.Passes[$sc.Pass]; $code = $pass.Maps[$sc.Idx]
+    $num = $sc.Ok.Count + $sc.Failed.Count + 1
+    $mins = ((Get-Date) - $sc.MapSince).TotalMinutes
+    if ($s.State -eq 'off' -and $mins -gt 1.5) {   # the server went away (crash, closed)
+        if ($sc.Restarts -ge 6) { Scan-Finish 'stopped (the server kept stopping)'; return }
+        Say "Map scan: server $($sc.N) stopped on $(Map-Name $code) - skipping that map and starting it again."
+        $sc.Restarts++; $sc.Failed += "$code (server stopped)"; $sc.Idx++
+        if ($sc.Idx -ge $pass.Maps.Count) { $sc.Phase = 'pass'; Scan-Step } else { Scan-PassStart }
+        return
+    }
+    $st = Scan-Status
+    $now = Level-Code $st['level']
+    if ($now -and $now -ine $code) {
+        # the server is on another map of this pass (it skipped one it could not load): catch up
+        $j = [array]::IndexOf(@($pass.Maps | ForEach-Object { $_.ToUpper() }), $now.ToUpper())
+        if ($j -gt $sc.Idx) { for ($q = $sc.Idx; $q -lt $j; $q++) { $sc.Failed += "$($pass.Maps[$q]) (the server skipped it)" }; $sc.Idx = $j; $code = $now; $sc.MapSince = Get-Date }
+    }
+    $where = "$num/$($sc.Total) $(Map-Name $code) - $(Mode-Name $pass.Mode)"
+    if ($now -ieq $code) {
+        if ($st['done'] -eq '1') { Say "Map scan $where`: done ($($st['objectives']) objective(s))."; Scan-Advance 'ok'; return }
+        $what = if ([int]$st['nav'] -lt 100) { "grid $($st['nav'])%" } elseif ($st['stairs'] -ne '1') { 'stairs' } elseif ($st['vehicles'] -eq '0') { 'vehicle scan' } else { 'flags / M-COMs' }
+        $ui.Log.Text = "MAP SCAN $where`: $what ($([int]$mins) min)"
+    } else {
+        $ui.Log.Text = "MAP SCAN $where`: $(if ($s.State -eq 'live') { 'waiting for Phoenix' } else { 'level loading' }) ($([int]$mins) min)"
+    }
+    if ($mins -gt 20) { Say "Map scan $where`: no result after 20 min - next map."; Scan-Advance 'timed out' }
+}
+$ui.BtnScan.Add_Click({ Safe { if ($script:scan) { Scan-Finish 'stopped' } else { Scan-Start } } })
+
 # ---------------------------------------------------------------- go
 $timer = New-Object Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds(3)
@@ -1033,6 +1182,7 @@ $timer.Add_Tick({
         $script:tick++
         if ($attachJobs.Count -or $pendingAttach.Count -or ($script:tick % 2 -eq 0)) { Refresh-Servers }
         Bots-Check
+        if ($script:scan) { Scan-Step }
         if ($script:tick % 4 -eq 0) { Update-Services }
     } catch {} finally { $script:busy = $false }
 })
@@ -1043,5 +1193,13 @@ $win.Add_ContentRendered({
     else { Say "Ready. Server folder: $server" }
     $timer.Start()
 })
-$win.Add_Closed({ $timer.Stop(); Save-Settings })
+$win.Add_Closed({
+    $timer.Stop(); Save-Settings
+    if ($script:scan) {   # (closing mid-scan: the files go back; the server keeps the map it is on)
+        $sc = $script:scan; $s = $srv[$sc.N]
+        if ($null -ne $sc.List) { [IO.File]::WriteAllText($s.MapList, $sc.List) }
+        if ($null -ne $sc.Options) { [IO.File]::WriteAllText($s.Options, $sc.Options) }
+        Ini-Set 'ScanMode' $(if ($sc.ScanIni -eq '1') { '1' } else { '0' }) 'Scanner'
+    }
+})
 [void]$win.ShowDialog()

@@ -11,7 +11,7 @@
 #include <math.h>
 #include <wchar.h>
 
-PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1, 1, 1};
+PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1, 1, 1, 0};
 WCHAR g_rootDir[1024];
 static HMODULE g_module;
 static HANDLE g_logFile = INVALID_HANDLE_VALUE;
@@ -149,6 +149,7 @@ static void load_config(void)
         else if (!_stricmp(k, "LearnFromHumans")) g_cfg.learnHumans = x != 0;
         else if (!_stricmp(k, "Routes")) g_cfg.routes = x != 0;
         else if (!_stricmp(k, "AutoRoutes")) g_cfg.autoRoutes = x != 0;
+        else if (!_stricmp(k, "ScanMode")) g_cfg.scanMode = x != 0;
         else if (!_stricmp(k, "RushObjectives")) g_cfg.objectives = x != 0;
         else if (!_stricmp(k, "BotDamage")) g_cfg.botDamage = fmaxf(0.5f, fminf(3.0f, x));
         else if (!_stricmp(k, "ScoreboardNames")) g_cfg.scoreboard = (int)fmaxf(0, fminf(2, x));
@@ -160,6 +161,10 @@ static void load_config(void)
     }
     fclose(f);
     if (g_cfg.botsPerTeam * 2 > 44) g_cfg.botsPerTeam = 22;
+    if (g_cfg.scanMode) {   /* 1.7.1 map scanner: no bots; the survey gets the time they would have had */
+        g_cfg.navBuild = 1; g_cfg.navBudgetMs = 25;
+        rt_log("config: MAP SCANNER - no bots; each map is surveyed flat out (grid, stairs, vehicle scan, flags / M-COMs, spawns, vehicles)");
+    }
     rt_log("config: %d bots per team%s, respawn %.0f s, difficulty %d, navigation %s (cell %.1f m, %.1f ms/tick), aim pitch sign %+d, grenades %s, movement step %s",
            g_cfg.botsPerTeam, g_cfg.fillToPerTeam ? " (fill mode)" : "", g_cfg.respawnDelay, g_cfg.difficulty, g_cfg.navBuild ? "on" : "off",
            g_cfg.navCell, g_cfg.navBudgetMs, g_cfg.pitchSign, g_cfg.grenades ? "on" : "off", g_cfg.moveStep ? "on" : "off");

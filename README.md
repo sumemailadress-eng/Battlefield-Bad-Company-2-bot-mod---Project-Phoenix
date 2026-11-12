@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.7.0** (release 1.5). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.7.1** (release 1.6). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -92,7 +92,9 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   bots that attach by themselves when a server's level is up, the bot settings, each server's map list (mode, Vietnam,
   order, rounds, play next) and the tools below.
 - **3D map + route editor** (`tools/Map3D`, 1.7.0): the "lidar" scan the bots make of each map as a 3D point cloud in your
-  browser, with flags, M-COMs, spawns, vehicles, roads and every route. Draw, move and delete foot and vehicle routes and
+  browser, with the flags (by their game names), every Rush stage's M-COMs, spawns, vehicles, roads and every route.
+- **Map scanner** (1.7.1): **SCAN ALL MAPS** in the launcher plays every map once with Phoenix in scan mode (no bots) so
+  every map is in the 3D map, with its flags or M-COMs. Maps scanned by older versions get theirs from the old bot logs. Draw, move and delete foot and vehicle routes and
   save them; the bots use them within 5 seconds. Needs Node.js.
 - **PhoenixLauncher.exe** (classic): one window to start the backend (XAMPP MySQL/Apache, redirector, emulator), the server, the
   bots and the game. **Stop All** shuts everything down safely. It also has bot settings, a map-list maker, a
@@ -175,6 +177,7 @@ Until the grid is ready, bots don't drive ground vehicles.
 | `KeepBotPlayers` | 1 | Dead bots keep their player, so scores add up |
 | `Routes` | 1 | Bots always use the saved foot and vehicle routes (1.7.0) |
 | `AutoRoutes` | 1 | Bots plan the missing spawn / objective foot routes themselves (1.7.0) |
+| `ScanMode` | 0 | Map scanner: no bots, the map is surveyed flat out (the launcher's SCAN ALL MAPS sets it) (1.7.1) |
 | `NavcacheDir` | (empty) | Where maps and learning are kept. Empty means `<server folder>\PhoenixNavcache` |
 
 Every option is commented in the file itself. The settings are read when the bots attach.
@@ -187,6 +190,9 @@ Every option is commented in the file itself. The settings are read when the bot
 3. Pick **Foot route** or **Vehicle route**, click along the way the bots should go, finish the route and **Save**.
    Foot routes go into `PhoenixNavcache\<map>.froutes`, vehicle routes into `PhoenixNavcache\<map>.vroutes`; the old
    files are backed up in `PhoenixNavcache\backup_3d\` first.
+
+To get every map into the 3D map at once, use **SCAN ALL MAPS** in the launcher (pick the server first). It takes a while
+(2 - 8 minutes a map), runs without bots, and puts your map list and settings back at the end.
 
 Bots read the files again within 5 seconds, even mid-round. A soldier walks a foot route that ends at its objective;
 a driver drives a vehicle route to its end.

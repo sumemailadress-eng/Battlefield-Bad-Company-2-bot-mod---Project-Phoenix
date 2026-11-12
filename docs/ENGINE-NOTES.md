@@ -319,3 +319,17 @@ Vehicles per map (Conquest), from StrategyWiki's BC2 vehicle and map pages:
 - Driving on a saved route ("strict"): look-ahead 5-11 m, steer back from 2 m off the line, throttle limited from 3 m
   off; no re-plan when far off and a hazard cut drops the strict flag (the driver stops, goes round, and the next request can pick the route again).
   At the route's end the strict flag is cleared and the normal vehicle planner takes over.
+
+## Map scanner (1.7.1)
+
+- Every stage's M-COMs exist from the start of a Rush round: the interaction scan lists each stage's arm (type 2) and
+  defuse (type 3) ServerInteractionEntity, on or off (Arica Harbor Rush: 10 spots = 5 stages). `collect_all_mcoms`
+  keeps them in `g_world.mcomAll`, stage 1 nearest the attackers' spawns that are enabled at the time (their first base;
+  Rush moves both teams' spawns along). Bots still play only the stage that is on.
+- Vietnam levels: `nam_mp_00x cq | r | sr | sdm` (server `dist\linux\levels`). The Rush ones end in a bare `R`.
+- `ScanMode=1`: no bots (wanted_on_team 0), grid build 25 ms per tick, stair re-check 25000 rays per tick, vehicle scan
+  8000 rays per tick. `navcache\scan.txt` (every 3 s): level, name, key, nav %, stairs, vehicles, objectives, seconds,
+  done. `done 1` = grid + stairs + vehicle scan (when Vehicles is on) + the objectives file written for this key, with
+  flags / M-COMs (Squad Deathmatch: spawns).
+- The launcher moves the server on with `mapList.nextLevelIndex <i>` + `admin.runNextLevel` (BC2 RCON, after
+  `login.plainText`). The map list it writes for a pass starts at the next map to scan, one round each.

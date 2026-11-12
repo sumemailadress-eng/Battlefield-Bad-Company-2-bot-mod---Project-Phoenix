@@ -223,7 +223,7 @@ function setEmptyNote(t) { document.getElementById('list').innerHTML = '<p class
 const totalOf = m => m.death.length + m.walk.length + m.drive.length + m.stuck.length + m.spot.length;
 /* BC2's mode is in the level name: ..CQ Conquest, ..GR Rush, ..SR Squad Rush, ..SDM Squad Deathmatch; a plain MP_00x level is
    Conquest when its number is odd and Rush when even (MP_006 = Arica Harbor Rush, MP_006CQ = Arica Harbor Conquest) */
-function bc2Mode(code) { const u = (code || '').toUpperCase(); if (/SDM$/.test(u)) return 'Squad Deathmatch'; if (/SR$/.test(u)) return 'Squad Rush'; if (/GR$/.test(u)) return 'Rush'; if (/CQ$/.test(u)) return 'Conquest'; const d = u.match(/(\d)$/); return d ? (+d[1] % 2 ? 'Conquest' : 'Rush') : ''; }
+function bc2Mode(code) { const u = (code || '').toUpperCase(); if (/SDM$/.test(u)) return 'Squad Deathmatch'; if (/SR$/.test(u)) return 'Squad Rush'; if (/GR$/.test(u) || /^NAM_.*\dR$/.test(u)) return 'Rush'; if (/CQ$/.test(u)) return 'Conquest'; const d = u.match(/(\d)$/); return d ? (+d[1] % 2 ? 'Conquest' : 'Rush') : ''; }
 function displayName(m) { const t = m.title || m.key; const parts = t.split(' - '); const level = (parts[1] ? parts[0] : '').replace(/^levels\//i, ''), mode = bc2Mode(level); return { name: (parts[1] || parts[0]) + (mode ? ' - ' + mode : ''), level }; }
 function renderMapList() {
   const ul = document.getElementById('maps'); ul.innerHTML = '';

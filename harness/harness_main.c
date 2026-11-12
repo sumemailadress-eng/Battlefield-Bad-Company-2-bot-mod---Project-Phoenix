@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1, 1, 1};
+PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1, 1, 1, 0};
 static double g_now;
 static uint32_t rng = 12345;
 static int quiet;
@@ -35,6 +35,7 @@ int main(int argc, char **argv)
     g_cfg.verbose = getenv("VERBOSE") != NULL;
     logf_ = fopen(getenv("HLOG") ? getenv("HLOG") : "harness.log", "w");
     if (getenv("PINTEST")) g_cfg.frozenRespawn = 15;
+    if (getenv("SCANMODE")) { g_cfg.scanMode = 1; g_cfg.navBudgetMs = 25; }   /* 1.7.1 map scanner */
     mock_init();
     float dt = 1.0f / 30;
     double nextStatus = 0;

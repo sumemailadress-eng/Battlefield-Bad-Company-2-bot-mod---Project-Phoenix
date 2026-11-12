@@ -35,7 +35,7 @@ a{color:var(--acc)}
   <div class="row">Floors as <select id="fmode"><option value="1">Surface (shows ramps)</option><option value="0">Points</option></select></div>
   <div class="row">Colour by <select id="cmode"><option value="3" id="cmodeTex">Map image (game)</option><option value="0">Slope (flat to steep)</option><option value="1">Height</option><option value="2">Plain</option></select></div>
   <div id="legend" style="color:var(--mut);font-size:12px"></div>
-  <div class="row"><label><input type="checkbox" id="sFlags" checked>Flags</label><label><input type="checkbox" id="sSpawns" checked>Spawns</label><label><input type="checkbox" id="sExits" checked><span class="sw" style="background:#22d3ee"></span>Water exits</label><a id="ply" href="#">Export PLY</a></div>
+  <div class="row"><label><input type="checkbox" id="sFlags" checked>Flags / M-COMs</label><label><input type="checkbox" id="sSpawns" checked>Spawns</label><label><input type="checkbox" id="sExits" checked><span class="sw" style="background:#22d3ee"></span>Water exits</label><a id="ply" href="#">Export PLY</a></div>
   <div class="row"><label title="Ground with the same material as under the parked vehicles, and where vehicles have been driven. Rough: on most maps it also covers plain ground, so it is not a road map"><input type="checkbox" id="sRoads"><span class="sw" style="background:#f1f3f5"></span>Road material (rough) <span class="sw" style="background:#74c0fc"></span>Driven <span id="roadCount"></span></label></div>
   <div class="row"><label title="Worked out from the scan by shape, so it is a guide: it can miss some and name others wrongly"><input type="checkbox" id="sOver"><span class="sw" style="background:#ff9ff3"></span>Bridges <span class="sw" style="background:#ffa94d"></span>Beams <span class="sw" style="background:#ff4757"></span>Low (under 4.5 m) <span id="overCount"></span></label></div>
   <div class="row"><label title="Where players may be in this mode, from the game's level files: each team's combat area"><input type="checkbox" id="sPlay" checked><span class="sw" style="background:#ff6b6b"></span>Play area</label> <select id="playMode"></select></div>
@@ -210,12 +210,23 @@ function pickSurface(ev) {
 function buildMarks() {
     groups.marks.clear();
     const groundAt = (x, z) => { const cx = Math.round((x - meta.x0) / meta.cell), cz = Math.round((z - meta.z0) / meta.cell); if (cx < 0 || cz < 0 || cx >= meta.w || cz >= meta.h) return meta.ymin; const c = cz * meta.w + cx; let lo = null; for (let k = index.start[c]; k < index.start[c + 1]; k++) lo = lo === null ? index.hs[k] : Math.min(lo, index.hs[k]); return lo ?? meta.ymin; };
-    const label = (text, color, p) => { const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64; const x = cv.getContext('2d'); x.font = 'bold 40px system-ui'; x.fillStyle = color; x.strokeStyle = '#000'; x.lineWidth = 6; x.strokeText(text, 8, 46); x.fillText(text, 8, 46); const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false })); s.scale.set(24, 6, 1); s.position.copy(p); s.renderOrder = 10; return s; };
+    const label = (text, color, p) => { const cv = document.createElement('canvas'); cv.width = 512; cv.height = 64; const x = cv.getContext('2d'); x.font = 'bold 40px system-ui'; x.fillStyle = color; x.strokeStyle = '#000'; x.lineWidth = 6; x.strokeText(text, 8, 46); x.fillText(text, 8, 46); const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false })); s.scale.set(48, 6, 1); s.center.set(0.1, 0.5); s.position.copy(p); s.renderOrder = 10; return s; };
+    const ownerTag = o => o === 1 ? ' (US)' : o === 2 ? ' (RU)' : '';
     data.flags.forEach((f, i) => {
-        const y = groundAt(f.x, f.z), g = new THREE.Group(); g.userData.kind = 'flag';
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 14), new THREE.MeshBasicMaterial({ color: 0xe8a400 })); pole.position.copy(T([f.x, y + 7, f.z])); g.add(pole);
-        const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(4, f.r) - 0.6, Math.max(4, f.r), 64), new THREE.MeshBasicMaterial({ color: 0xe8a400, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })); ring.rotation.x = -Math.PI / 2; ring.position.copy(T([f.x, y + 0.5, f.z])); g.add(ring);
-        g.add(label(String.fromCharCode(65 + i) + (f.owner ? ' T' + f.owner : ''), '#ffd43b', T([f.x + 6, y + 16, f.z]))); groups.marks.add(g);
+        // (BC2: a flag stands on the ground; an M-COM can stand inside a building or upstairs, so it keeps its own height)
+        const y = f.mcom && isFinite(f.y) ? f.y : groundAt(f.x, f.z), g = new THREE.Group(); g.userData.kind = 'flag';
+        if (f.mcom) {   // M-COM: a red crate with a beacon, labelled with its stage
+            const box = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 1.2), new THREE.MeshBasicMaterial({ color: 0xff4d2e })); box.position.copy(T([f.x, y + 0.8, f.z])); g.add(box);
+            const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 18), new THREE.MeshBasicMaterial({ color: 0xff4d2e, transparent: true, opacity: 0.7 })); pole.position.copy(T([f.x, y + 9, f.z])); g.add(pole);
+            const ring = new THREE.Mesh(new THREE.RingGeometry(5.4, 6, 48), new THREE.MeshBasicMaterial({ color: 0xff4d2e, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })); ring.rotation.x = -Math.PI / 2; ring.position.copy(T([f.x, y + 0.3, f.z])); g.add(ring);
+            g.add(label('M-COM ' + (f.name || (f.letter || String.fromCharCode(65 + i))), '#ff8a70', T([f.x + 3, y + 20, f.z])));
+        } else {
+            const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 14), new THREE.MeshBasicMaterial({ color: 0xe8a400 })); pole.position.copy(T([f.x, y + 7, f.z])); g.add(pole);
+            const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(4, f.r) - 0.6, Math.max(4, f.r), 64), new THREE.MeshBasicMaterial({ color: 0xe8a400, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })); ring.rotation.x = -Math.PI / 2; ring.position.copy(T([f.x, y + 0.5, f.z])); g.add(ring);
+            // the game's own flag name ("A: CommCenter", "US Base"); else Phoenix's letter
+            g.add(label((f.name || 'Flag ' + (f.letter || String.fromCharCode(65 + i))) + ownerTag(f.owner), '#ffd43b', T([f.x + 3, y + 16, f.z])));
+        }
+        groups.marks.add(g);
     });
     data.spawnList.forEach((s, i) => {
         const g = new THREE.Group(); g.userData.kind = 'spawn';

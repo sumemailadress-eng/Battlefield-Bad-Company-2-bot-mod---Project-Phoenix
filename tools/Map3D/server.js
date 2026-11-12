@@ -20,6 +20,7 @@
 const http = require('http'), fs = require('fs'), path = require('path');
 const { findOverhead } = require('./overhead.js');   // bridges and beams
 
+const VERSION = '1.7.1';   // (the launcher restarts an older 3D map server it finds running)
 const SERVER = path.join(__dirname, '..', '..');   // (the Phoenix folder: tools\Map3D is inside it)
 const PORT = +(process.argv[3] || 8644);
 function iniValue(file, key) {
@@ -156,7 +157,7 @@ function bc2Mode(code) {
     const u = code.toUpperCase();
     if (/SDM$/.test(u)) return 'Squad Deathmatch';
     if (/SR$/.test(u)) return 'Squad Rush';
-    if (/GR$/.test(u)) return 'Rush';
+    if (/GR$/.test(u) || /^NAM_.*\dR$/.test(u)) return 'Rush';   // (Vietnam: NAM_MP_002R)
     if (/CQ$/.test(u)) return 'Conquest';
     const d = u.match(/(\d)$/); return d ? (+d[1] % 2 ? 'Conquest' : 'Rush') : '';
 }
@@ -184,7 +185,8 @@ function reportData(map) {   // Phoenix: <map>.objectives (flags / M-COMs / spaw
     const t = read(path.join(NAV, map + '.objectives')); const flags = [], spawns = []; let name = '';
     if (t) for (const l of t.split(/\r?\n/)) {
         const v = l.trim().split(/\s+/);
-        if ((v[0] === 'flag' || v[0] === 'mcom') && v.length >= 5) flags.push({ x: +v[2], y: +v[3], z: +v[4], r: v[0] === 'mcom' ? 3 : 10, owner: +v[5] || 0, mcom: v[0] === 'mcom' });
+        if (v[0] === 'flag' && v.length >= 5) flags.push({ x: +v[2], y: +v[3], z: +v[4], r: 10, owner: +v[5] || 0, mcom: false, letter: v[1], name: v.slice(6).join(' ') });
+        else if (v[0] === 'mcom' && v.length >= 5) flags.push({ x: +v[2], y: +v[3], z: +v[4], r: 3, owner: +v[5] || 0, mcom: true, letter: v[1], stage: +v[6] || 0, name: v.slice(7).join(' ') });
         else if (v[0] === 'spawn' && v.length >= 5) spawns.push(`spawn ${v[1]} ${v[2]} ${v[3]} ${v[4]}`);
         else if (v[0] === 'name') name = l.trim().slice(5);
     }
@@ -312,7 +314,7 @@ const server = http.createServer((req, res) => {
         if (u.pathname === '/api/maps') {   // every scanned map in navcache, named from its .objectives file
             const maps = fs.readdirSync(NAV).filter(f => f.endsWith('.nav')).map(f => f.slice(0, -4)).filter(safeMap).sort();
             const names = {}; for (const m of maps) { const n = mapLabel(m); if (n) names[m] = n; }
-            return send(res, 200, 'application/json', JSON.stringify({ server: NAV, maps, names, live: liveMap(), limits: LIMITS, features: FEATURES }));
+            return send(res, 200, 'application/json', JSON.stringify({ version: VERSION, server: NAV, maps, names, live: liveMap(), limits: LIMITS, features: FEATURES }));
         }
         // the map's own top-down image, read from this PC's game files (textures\\<map>.jpg + .json: re\\scripts\\fb_minimap.py)
         if (u.pathname === '/api/texinfo' && map) { return send(res, 200, 'application/json', 'null'); }
@@ -345,4 +347,13 @@ if (u.pathname === '/api/overhead' && map) return send(res, 200, 'application/js
     } catch (e) { console.error(e); send(res, 500, 'text/plain', String(e.message || e)); }
 });
 module.exports = { roadData, buildCloud, loadRoutes, reportData, overheadData, liveMap, LIMITS };
-if (require.main === module) server.listen(PORT, '127.0.0.1', () => console.log(`Project Phoenix 3D map: http://localhost:${PORT}/  (folder ${NAV})`));
+// 1.7.1: maps the bots scanned before 1.7.0 get their flags, M-COMs, spawns and vehicles from the bot logs - this install's
+// reports and those of the other Project Phoenix folders next to it (files the bots wrote themselves are never replaced)
+function importOldLogs() {
+    try {
+        const dirs = [SERVER], up = path.dirname(SERVER);
+        for (const e of fs.readdirSync(up, { withFileTypes: true })) if (e.isDirectory() && /phoenix/i.test(e.name) && path.join(up, e.name) !== SERVER) dirs.push(path.join(up, e.name));
+        require('./import-logs.js').importLogs(NAV, dirs, t => console.log('logs: ' + t));
+    } catch (e) { console.log('logs: ' + e.message); }
+}
+if (require.main === module) { importOldLogs(); server.listen(PORT, '127.0.0.1', () => console.log(`Project Phoenix 3D map: http://localhost:${PORT}/  (folder ${NAV})`)); }

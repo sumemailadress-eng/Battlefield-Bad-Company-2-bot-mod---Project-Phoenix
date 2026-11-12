@@ -141,6 +141,33 @@ static int read_obj(uint32_t e, ObjRaw *o)
     o->active = (flags >> 3) & 1;
     return 1;
 }
+/* 1.7.1: every stage's M-COMs, for the 3D map. The game has every stage's arm (type 2) and defuse (type 3) interactions
+   from the start of the round, on or off. One M-COM per spot; the attackers are the team the arm points are for; stages
+   run from the attackers' first base (their spawns enabled now) - nearest first, 2 per stage (Squad Rush 1). */
+static void collect_all_mcoms(const ObjRaw *raw, int nr)
+{
+    struct { float pos[3], d; int arm, def; } s[32]; int ns = 0;
+    for (int i = 0; i < nr; i++) {
+        if (raw[i].type != 2 && raw[i].type != 3) continue;
+        int k = 0; for (; k < ns; k++) if (dist2d_w(s[k].pos, raw[i].pos) < 4 && fabsf(s[k].pos[1] - raw[i].pos[1]) < 3) break;
+        if (k == ns) { if (ns >= 32) break; memset(&s[k], 0, sizeof s[k]); memcpy(s[k].pos, raw[i].pos, 12); ns++; }
+        if (raw[i].team >= 1 && raw[i].team <= 2) { if (raw[i].type == 2) s[k].arm = raw[i].team; else s[k].def = raw[i].team; }
+    }
+    if (ns <= g_world.mcomAllN) return;   /* (keep the fullest list seen this level: stages switch off as they fall) */
+    int att = 0; for (int k = 0; k < ns && !att; k++) att = s[k].arm; for (int k = 0; k < ns && !att; k++) if (s[k].def) att = 3 - s[k].def;
+    if (!att) att = 1;
+    float ref[3] = {0, 0, 0}; int rn = 0;
+    for (int pass = 0; pass < 2 && !rn; pass++)
+        for (int i = 0; i < g_world.spawnCount; i++) { const SpawnPoint *sp = &g_world.spawns[i];
+            if (!sp->posValid || sp->team != att || (!pass && !sp->enabled)) continue; ref[0] += sp->pos[0]; ref[2] += sp->pos[2]; rn++; }
+    if (rn) { ref[0] /= rn; ref[2] /= rn; }
+    for (int k = 0; k < ns; k++) s[k].d = rn ? dist2d_w(s[k].pos, ref) : (float)k;
+    for (int a = 1; a < ns; a++) for (int b = a; b > 0 && s[b].d < s[b - 1].d; b--) { __typeof__(s[0]) t = s[b]; s[b] = s[b - 1]; s[b - 1] = t; }
+    int per = g_world.mode == MODE_SQRUSH ? 1 : 2;
+    for (int k = 0; k < ns; k++) { memcpy(g_world.mcomAll[k].pos, s[k].pos, 12); g_world.mcomAll[k].stage = k / per + 1; g_world.mcomAll[k].sub = k % per; }
+    g_world.mcomAllN = ns; g_world.mcomDefender = 3 - att;
+    rt_log("objectives: %d M-COM(s) in all, %d stage(s) - team %d attacks (for the 3D map)", ns, (ns + per - 1) / per, att);
+}
 /* InteractionEntityType (data +172): 2 = arm, 3 = defuse (ServerPlayer::entityInteract flags them at +0xCA4 / +0xCA5) */
 static void objectives_collect(const uint32_t *list, int n)
 {
@@ -153,6 +180,7 @@ static void objectives_collect(const uint32_t *list, int n)
         if (o.type == 2 || o.type == 3) typed++;
         raw[nr++] = o;
     }
+    collect_all_mcoms(raw, nr);
     /* one M-COM per spot: its arm and its defuse interaction stand together; only the stage that is on (an active one) */
     CapturePoint cps[MAX_CPS]; int kept = 0;
     for (int i = 0; i < nr; i++) {
@@ -631,6 +659,7 @@ static void find_level_name(uint32_t level)
         if (n >= 3 && !strcmp(up + n - 3, "SDM")) g_world.mode = MODE_SQDM;
         else if (n >= 2 && !strcmp(up + n - 2, "SR")) g_world.mode = MODE_SQRUSH;
         else if (n >= 2 && !strcmp(up + n - 2, "GR")) g_world.mode = MODE_RUSH;
+        else if (n >= 1 && up[n - 1] == 'R') g_world.mode = MODE_RUSH;   /* 1.7.1: Vietnam's Rush levels: NAM_MP_002R */
         else if (n >= 2 && !strcmp(up + n - 2, "CQ")) g_world.mode = MODE_CONQUEST;
         else if (n >= 1 && up[n - 1] >= '0' && up[n - 1] <= '9') g_world.mode = ((up[n - 1] - '0') & 1) ? MODE_CONQUEST : MODE_RUSH;
         static const char *mn[] = {"Conquest", "Rush", "Squad Rush", "Squad Deathmatch"};
@@ -650,7 +679,7 @@ void world_tick(double now)
     lastTi = ti; lastSm = sm;
     if (level != g_world.level || manager != g_world.manager || subChanged) {
         g_world.level = level; g_world.manager = manager; g_world.levelSerial++; g_world.levelSince = now;
-        g_world.cpCount = 0; g_world.vehCount = 0; g_world.vspawnCount = 0; g_world.spawnCount = 0; memset(g_world.kitCount, 0, sizeof g_world.kitCount); g_world.boundsValid = 0; g_world.teamCount = 2;
+        g_world.cpCount = 0; g_world.mcomAllN = 0; g_world.vehCount = 0; g_world.vspawnCount = 0; g_world.spawnCount = 0; memset(g_world.kitCount, 0, sizeof g_world.kitCount); g_world.boundsValid = 0; g_world.teamCount = 2;
         rt_log("level: level object 0x%08lx, player manager 0x%08lx (change #%u)", (unsigned long)level, (unsigned long)manager, g_world.levelSerial);
         g_nextSlow = now + 2.0; g_nextCp = now + 4.0;
         navg_reset();

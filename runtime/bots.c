@@ -115,7 +115,7 @@ static int nteams(void) { return g_world.teamCount >= 4 ? 4 : 2; }
 static int bots_on_team(int team) { int n = 0; for (int i = 0; i < MAX_BOTS; i++) if (g_bots[i].used && g_bots[i].team == team) n++; return n; }
 static int wanted_on_team(int team)
 {
-    if (team > nteams()) return 0;
+    if (team > nteams() || g_cfg.scanMode) return 0;   /* (1.7.1 map scanner: no bots) */
     if (g_world.mode == MODE_SQDM && nteams() == 4) {   /* Squad Deathmatch: four squads of four */
         int per = g_cfg.botsPerTeam < 4 ? g_cfg.botsPerTeam : 4, w = per - g_world.humans[team]; return w < 0 ? 0 : w; }
     if (g_cfg.fillToPerTeam > 0) { int w = g_cfg.fillToPerTeam - g_world.humans[team]; return w < 0 ? 0 : w; }

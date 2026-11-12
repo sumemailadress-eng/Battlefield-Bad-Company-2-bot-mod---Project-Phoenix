@@ -28,6 +28,28 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.1 - flags and M-COMs on the 3D map, a scanner for every map, real map names
+
+- **Map scanner: SCAN ALL MAPS** (Phoenix-Launcher). Plays every Bad Company 2 map once on the selected server with
+  Phoenix in scan mode (`ScanMode=1`: no bots, the survey runs flat out) and moves the server on as soon as a map is done.
+  Each map then has its scan (grid, stairs, vehicle scan), its flags - or every Rush stage's M-COMs - its spawns and its
+  vehicles in the 3D map. One pass per mode (Conquest, Rush, Squad Rush, Squad Deathmatch, then the same for Vietnam,
+  which needs `GameModID = VIETNAM`); the server is restarted for each pass. Choose the maps not scanned yet, or all of
+  them again. The map list, ServerOptions.ini and phoenix.ini are put back afterwards (also when you press STOP SCAN or
+  close the launcher). Plan on 2 - 8 minutes a map, longest for a map never scanned before.
+- **Flags and M-COMs on the 3D map.** Flags show the game's own names ("A: CommCenter", "US Base") and starting owner;
+  M-COMs are red crates labelled by stage ("M-COM Stage 2 A"), at their real height (some stand upstairs). The bots now
+  save every Rush stage's M-COMs (the game lists all of them when the round starts), ordered from the attackers' first base.
+- **Old maps filled in from the bot logs.** Maps scanned before 1.7.0 had nothing but the grid. When the 3D map starts it
+  reads the bot logs of this and the other Project Phoenix folders next to it (`tools\Map3D\import-logs.js`) and saves
+  each map's flags, M-COMs, spawns and vehicles - only where the bots haven't saved them themselves.
+- **Map names.** The 3D map lists maps by name and mode ("Arica Harbor - Rush  [MP_006]") instead of their navcache key;
+  LearnViewer adds the mode, so the Rush and Conquest versions of a map can be told apart. A one-line `<map>.name` file
+  in the navcache names an old grid nothing else names.
+- **Every Vietnam mode.** The server has Vietnam Rush (`NAM_MP_00xR`), Squad Rush and Squad Deathmatch as well as
+  Conquest: both launchers list them, and Phoenix now plays `NAM_MP_00xR` as Rush (1.7.0 took it for Conquest).
+- The launcher restarts a 3D map server left running from an older version.
+
 ## What changed in 1.7.0 - a route network bots keep to, a 3D map to draw routes, a new launcher
 
 - **Routes bots always follow.** Every map now has a route network, kept in two files in the shared navcache

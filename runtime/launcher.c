@@ -376,8 +376,12 @@ static const MapDef kMaps[] = {
     {L"MP_007SDM", L"White Pass", MODE_SQDM, 0}, {L"MP_008SDM", L"Nelson Bay", MODE_SQDM, 0}, {L"MP_009SDM", L"Laguna Presa", MODE_SQDM, 0},
     {L"BC1_Harvest_Day_SDM", L"Harvest Day", MODE_SQDM, 0}, {L"BC1_Oasis_SDM", L"Oasis", MODE_SQDM, 0}, {L"MP_SP_002SDM", L"Cold War", MODE_SQDM, 0},
     {L"MP_SP_005SDM", L"Heavy Metal", MODE_SQDM, 0},
-    {L"NAM_MP_002CQ", L"Vantage Point", MODE_CQ, 1}, {L"NAM_MP_003CQ", L"Hill 137", MODE_CQ, 1}, {L"NAM_MP_005CQ", L"Cao Son Temple", MODE_CQ, 1},
-    {L"NAM_MP_006CQ", L"Phu Bai Valley", MODE_CQ, 1}, {L"NAM_MP_007CQ", L"Operation Hastings", MODE_CQ, 1},
+    /* 1.7.1: Vietnam has every mode (the server has nam_mp_00x cq / r / sr / sdm) */
+    {L"NAM_MP_002CQ", L"Vantage Point", MODE_CQ, 1}, {L"NAM_MP_002R", L"Vantage Point", MODE_RUSH, 1}, {L"NAM_MP_002SR", L"Vantage Point", MODE_SQRUSH, 1}, {L"NAM_MP_002SDM", L"Vantage Point", MODE_SQDM, 1},
+    {L"NAM_MP_003CQ", L"Hill 137", MODE_CQ, 1}, {L"NAM_MP_003R", L"Hill 137", MODE_RUSH, 1}, {L"NAM_MP_003SR", L"Hill 137", MODE_SQRUSH, 1}, {L"NAM_MP_003SDM", L"Hill 137", MODE_SQDM, 1},
+    {L"NAM_MP_005CQ", L"Cao Son Temple", MODE_CQ, 1}, {L"NAM_MP_005R", L"Cao Son Temple", MODE_RUSH, 1}, {L"NAM_MP_005SR", L"Cao Son Temple", MODE_SQRUSH, 1}, {L"NAM_MP_005SDM", L"Cao Son Temple", MODE_SQDM, 1},
+    {L"NAM_MP_006CQ", L"Phu Bai Valley", MODE_CQ, 1}, {L"NAM_MP_006R", L"Phu Bai Valley", MODE_RUSH, 1}, {L"NAM_MP_006SR", L"Phu Bai Valley", MODE_SQRUSH, 1}, {L"NAM_MP_006SDM", L"Phu Bai Valley", MODE_SQDM, 1},
+    {L"NAM_MP_007CQ", L"Operation Hastings", MODE_CQ, 1}, {L"NAM_MP_007R", L"Operation Hastings", MODE_RUSH, 1}, {L"NAM_MP_007SR", L"Operation Hastings", MODE_SQRUSH, 1}, {L"NAM_MP_007SDM", L"Operation Hastings", MODE_SQDM, 1},
 };
 #define NMAPS ((int)(sizeof kMaps / sizeof *kMaps))
 enum { IDM_MODE = 1000, IDM_VIET, IDM_HC, IDM_ROUNDS, IDM_LIST, IDM_ALL, IDM_NONE, IDM_SAVE, IDM_CLOSE, IDM_STATUS, IDM_UP, IDM_DOWN };

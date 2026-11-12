@@ -152,12 +152,21 @@ static int have_route(const float *a, const float *b)
         if ((d2(r->pts[0], a) < 12 && d2(r->pts[r->n - 1], b) < 12) || (d2(r->pts[0], b) < 12 && d2(r->pts[r->n - 1], a) < 12)) return 1; }
     return 0;
 }
+static int g_objWritten;   /* (1.7.1: this map's objectives are on disk) */
 static void write_objectives(void)
 {
     char p[1200]; if (!file_path(".objectives", p, sizeof p)) return;
     FILE *f = fopen(p, "w"); if (!f) return;
-    fprintf(f, "# Project Phoenix: %s - flag/mcom <letter> x y z, spawn <team> x y z (for the 3D map)\nlevel %s\nname %s\n", g_key, g_world.levelName, g_world.mapName);
-    for (int i = 0; i < g_world.cpCount; i++) fprintf(f, "%s %c %.1f %.1f %.1f %d\n", g_world.cps[i].isObj ? "mcom" : "flag", 'A' + i, g_world.cps[i].pos[0], g_world.cps[i].pos[1], g_world.cps[i].pos[2], g_world.cps[i].owner);
+    fprintf(f, "# Project Phoenix: %s - flag <letter> x y z owner name | mcom <letter> x y z owner stage name | spawn <team> x y z (for the 3D map)\nlevel %s\nname %s\n", g_key, g_world.levelName, g_world.mapName);
+    if (g_world.mcomAllN)   /* 1.7.1: every stage's M-COMs (the bots play only the stage that is on) */
+        for (int i = 0; i < g_world.mcomAllN; i++) fprintf(f, "mcom %c %.1f %.1f %.1f %d %d Stage %d%s%s\n", 'A' + i, g_world.mcomAll[i].pos[0], g_world.mcomAll[i].pos[1], g_world.mcomAll[i].pos[2],
+                                                           g_world.mcomDefender, g_world.mcomAll[i].stage, g_world.mcomAll[i].stage, g_world.mode == MODE_SQRUSH ? "" : " ", g_world.mode == MODE_SQRUSH ? "" : (g_world.mcomAll[i].sub ? "B" : "A"));
+    for (int i = 0; i < g_world.cpCount; i++) {
+        if (g_world.cps[i].isObj) { if (!g_world.mcomAllN) fprintf(f, "mcom %c %.1f %.1f %.1f %d 0 %s\n", 'A' + i, g_world.cps[i].pos[0], g_world.cps[i].pos[1], g_world.cps[i].pos[2], g_world.cps[i].owner, g_world.cps[i].name); continue; }
+        char nm[40]; snprintf(nm, sizeof nm, "%s%s", g_world.cps[i].name, g_world.cps[i].locked ? " (base)" : "");
+        for (char *c = nm; *c; c++) if (*c == '\r' || *c == '\n') *c = ' ';
+        fprintf(f, "flag %c %.1f %.1f %.1f %d %s\n", 'A' + i, g_world.cps[i].pos[0], g_world.cps[i].pos[1], g_world.cps[i].pos[2], g_world.cps[i].owner, nm);
+    }
     for (int i = 0; i < g_world.spawnCount; i++) if (g_world.spawns[i].posValid) fprintf(f, "spawn %d %.1f %.1f %.1f\n", g_world.spawns[i].team, g_world.spawns[i].pos[0], g_world.spawns[i].pos[1], g_world.spawns[i].pos[2]);
     fclose(f);
     if (file_path(".vehicles", p, sizeof p) && g_world.vspawnCount && (f = fopen(p, "w"))) {
@@ -170,15 +179,31 @@ static void write_objectives(void)
 }
 
 /* ---- tick: files, then build the missing foot routes one at a time */
+/* 1.7.1 map scanner: navcache\scan.txt tells the launcher how far the survey of the map being played is */
+static void write_scan(double now)
+{
+    static double at; if (now < at) return; at = now + 3;
+    int pct, grid, stairs, vscan; navg_scan_state(&pct, &grid, &stairs, &vscan);
+    char p[1200]; rt_nav_cache_path("scan", p, sizeof p); char *dot = strrchr(p, '.'); if (dot) strcpy(dot, ".txt");
+    FILE *f = fopen(p, "w"); if (!f) return;
+    const char *k = navg_key();
+    int objs = g_world.mcomAllN ? g_world.mcomAllN : g_world.cpCount;
+    int done = grid && stairs && (vscan || !g_cfg.vehicles) && g_objWritten && !strcmp(g_key, k ? k : "") && (objs || g_world.mode == MODE_SQDM);
+    fprintf(f, "level %s\nname %s\nkey %s\nnav %d\nstairs %d\nvehicles %s\nobjectives %d\nseconds %.0f\ndone %d\n", g_world.levelName, g_world.mapName,
+            k && k[0] ? k : "-", pct, stairs, g_cfg.vehicles ? (vscan ? "1" : "0") : "off", objs, now - g_world.levelSince, done);
+    fclose(f);
+}
+
 void rn_tick(double now)
 {
+    if (g_cfg.scanMode && g_world.level) write_scan(now);
     const char *k = navg_key();
     if (!navg_ready() || !k || !k[0]) return;
     if (strcmp(k, g_key)) {
         snprintf(g_key, sizeof g_key, "%s", k);
         if (g_building) nav_cancel_path(RN_OWNER);
         g_fn = g_vn = 0; g_fDirty = 0; g_building = 0; g_built = g_used = g_vUsed = 0; memset(g_pairFailed, 0, sizeof g_pairFailed);
-        g_fStamp = g_vStamp = g_rStamp = -1; g_checkAt = 0; g_objAt = now + 5; g_imported = 0;
+        g_fStamp = g_vStamp = g_rStamp = -1; g_checkAt = 0; g_objAt = now + 5; g_imported = 0; g_objWritten = 0;
     }
     if (now >= g_checkAt) {   /* (re-read when the 3D map or LearnViewer saved new routes) */
         g_checkAt = now + 5;
@@ -186,7 +211,8 @@ void rn_tick(double now)
         if (fs != g_fStamp && !g_fDirty) { g_fStamp = fs; load_froutes(); if (g_fn) rt_log("routes: %d foot route(s) loaded for %s", g_fn, g_key); }
         if (vs != g_vStamp || rs != g_rStamp) { g_vStamp = vs; g_rStamp = rs; load_vroutes(); if (g_vn) rt_log("routes: %d vehicle route(s) loaded - drivers near one that leads to their flag drive it to its end", g_vn); }
     }
-    if (now >= g_objAt && g_world.cpCount) { g_objAt = now + 30; write_objectives(); }
+    /* (1.7.1: Squad Deathmatch has no flags - its spawns are written once the level has settled; the scanner every 5 s) */
+    if (now >= g_objAt && (g_world.cpCount || g_world.mcomAllN || now - g_world.levelSince > 45)) { g_objAt = now + (g_cfg.scanMode ? 5 : 30); write_objectives(); g_objWritten = 1; }
     if (g_fDirty && now >= g_saveAt) save_froutes();
     if (!g_cfg.routes || !g_cfg.autoRoutes || !g_world.cpCount) return;
     End e[64]; int ne = ends_list(e, 64);
