@@ -75,6 +75,7 @@ typedef struct Bot {
     /* 1.6.9 */
     float swimBank[3], swimBest; double swimBestAt, swimJumpAt; int swimHave; double islandAt; float island[3]; double islandUntil;
     double boostLogAt, ppAt, pastEndSince; float ppScale, routeLeft; int pastEnd;   /* 1.6.10 */
+    float cornerV;   /* 1.7.3: the speed allowed now for the corners ahead */
     /* 1.7.0 the route network: a foot route being walked, a vehicle route being driven */
     float rt[RN_PTS * 3]; int rtN, rtIdx, rtOn, rtId; float rtGoal[3]; double rtPickAt, rtSkipAt, rtClearAt; int rtClear;
     int pathStrict;
@@ -2408,7 +2409,10 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
                 for (int i = 0; i < rn && m < MAX_PATH_PTS; i++) { memcpy(&b->path[m * 3], &rpts[i * 3], 12); m++; }
                 b->pathLen = m; b->pathIdx = 1; b->pathPending = 0; b->pastEnd = 0; b->routeLeft = 1e9f; b->pathStrict = 1; b->pathPartial = 0; b->pathGap = 0; b->noRouteSince = 0;
                 memcpy(b->pathGoal, goal, 12); b->pathAt = now;
-                static int vl; if (vl++ < 30 || g_cfg.verbose) rt_log("routes: %s drives '%s' on saved vehicle route %d (%d point(s), joined %.0f m away) towards flag %c", b->name, vi.name, rid, rn, jd, 'A' + f);
+                static int vl; if (vl++ < 30 || g_cfg.verbose) {
+                    float rl = 0; for (int i = 1; i < rn; i++) rl += dist2d(&rpts[(i - 1) * 3], &rpts[i * 3]);
+                    if (rid < 0) rt_log("routes: %s drives '%s' along the saved roads (%.0f m, %d point(s), joined %.0f m away) towards flag %c", b->name, vi.name, rl, rn, jd, 'A' + f);
+                    else rt_log("routes: %s drives '%s' on saved vehicle route %d (%d point(s), joined %.0f m away) towards flag %c", b->name, vi.name, rid, rn, jd, 'A' + f); }
             }
             else b->pathPending = 1;
             n = -1;   /* (handled) */
@@ -2560,6 +2564,27 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
             along += dist2d(pv, &b->path[k * 3]); pv = &b->path[k * 3];
             if (along > 8 && k + 1 < b->pathLen && dist2d(pv, &b->path[(k + 1) * 3]) > 1) { float t = fabsf(wrap_pi(heading_to(pv, &b->path[(k + 1) * 3]) - h0)); if (t > bend) bend = t; }
         }
+        /* 1.7.3: a corner speed for every corner in the next 60 m. The way into a corner (the last 8 m of route before it)
+           against the way out (the first 8 m after it) gives how sharp it is - a 90 degree fork drawn as two or three
+           points still reads as 90 degrees - and that gives the speed to take it at (90 degrees: 5 m/s, a tank 4); the
+           speed allowed now is what can still be braked down to that by the corner. 1.7.2 only lifted off above 9 m/s:
+           a jeep reached a T junction at 15 m/s and slid straight on into the wall across it. */
+        b->cornerV = 99;
+        {
+            float dk = dist2d(vi.pos, &b->path[kBest * 3]);
+            for (int k = kBest; k + 1 < b->pathLen && dk < 60; k++) {
+                if (k > kBest) dk += dist2d(&b->path[(k - 1) * 3], &b->path[k * 3]);
+                const float *v = &b->path[k * 3], *pin = v, *pout = v; float back = 0, fwd = 0;
+                for (int j = k; j > 0 && back < 8; j--) { back += dist2d(&b->path[(j - 1) * 3], &b->path[j * 3]); pin = &b->path[(j - 1) * 3]; }
+                for (int j = k; j + 1 < b->pathLen && fwd < 8; j++) { fwd += dist2d(&b->path[j * 3], &b->path[(j + 1) * 3]); pout = &b->path[(j + 1) * 3]; }
+                if (back < 2 || fwd < 2) continue;
+                float th = fabsf(wrap_pi(heading_to(v, pout) - heading_to(pin, v)));
+                if (th < 0.35f) continue;
+                float vc = 15.0f - 8.0f * (th - 0.35f) / 1.22f; if (vc < 5.0f) vc = 5.0f; if (tracked) vc -= 1.0f;
+                float allow = sqrtf(vc * vc + 2.0f * 3.0f * fmaxf(0, dk - 4.0f));
+                if (allow < b->cornerV) b->cornerV = allow;
+            }
+        }
     } else if (b->pathLen == 1) memcpy(target, b->path, 12);
     float want = heading_to(vi.pos, target);
     /* obstacle avoidance (1.2): three feelers from the front bumper - straight and 26 degrees either side - at 1.2 m;
@@ -2644,7 +2669,12 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     float steerCmd = fmaxf(-1, fminf(1, err * 1.8f)) * c->steerSign;
     float thr = fabsf(err) < 0.5f ? 1.0f : fabsf(err) < 1.2f ? 0.65f : 0.45f;
     if (tracked && fabsf(err) > 0.75f && speed < 6) { thr = 0; steerCmd = (err > 0 ? 1.0f : -1.0f) * c->steerSign; }   /* tanks turn on the spot */
-    if (bend > 1.0f && speed > 9) thr = 0.0f;          /* hairpin ahead: lift off */
+    if (b->pathLen >= 2 && !b->pastEnd && !escaping && b->cornerV < 50) {   /* 1.7.3: down to the corner speed in time */
+        if (fwdSpeed > b->cornerV + 1.5f) thr = -0.6f;          /* brake (throttle against the motion) */
+        else if (fwdSpeed > b->cornerV) thr = fminf(thr, 0.0f); /* coast */
+        else if (fwdSpeed > b->cornerV - 2.0f) thr = fminf(thr, 0.5f);
+    }
+    if (bend > 1.0f && speed > 9) thr = fminf(thr, 0.0f);          /* hairpin ahead: lift off */
     else if (bend > 0.6f && speed > 12) thr = fminf(thr, 0.45f);
     if (fabsf(err) > 0.9f && fwdSpeed > 10) thr = -0.5f;                 /* too fast for the turn: brake (throttle against the motion) */
     if (!escaping && b->frontClear < 8) { if (fwdSpeed > 5) thr = -0.6f; else thr = fminf(thr, 0.4f); }   /* something close in front: slow, steer round it */

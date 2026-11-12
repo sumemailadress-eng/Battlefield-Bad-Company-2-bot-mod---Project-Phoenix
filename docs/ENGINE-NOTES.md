@@ -333,3 +333,15 @@ Vehicles per map (Conquest), from StrategyWiki's BC2 vehicle and map pages:
   flags / M-COMs (Squad Deathmatch: spawns).
 - The launcher moves the server on with `mapList.nextLevelIndex <i>` + `admin.runNextLevel` (BC2 RCON, after
   `login.plainText`). The map list it writes for a pass starts at the next map to scan, one round each.
+
+## Vehicle road network (1.7.3)
+
+- `build_graph` (routenet.c): every vehicle route point is a node; points of different routes within 3 m (and 3 m in
+  height) are one node (spatial hash, 4 m cells); consecutive points are edges, added once (a stretch drawn by several
+  routes is one road); a route end within 4 m of another route's segment is joined to both of that segment's points.
+- `graph_route`: multi-source Dijkstra (every node within 60 m of the vehicle, start cost 2 x distance); the way out is
+  the node minimising cost + 2 x distance to the flag among nodes 30 m+ nearer the flag than the vehicle; path >= 20 m.
+  Paths longer than the driver's 256 points keep every corner (> 20 degrees) and thin the straights.
+- Corner speed (bots.c): for each path vertex in the next 60 m, the turn between the heading over the 8 m before it and
+  the 8 m after it; v_corner = 15 - 8 (theta - 0.35) / 1.22 m/s, at least 5 (tracked 1 less); allowed now =
+  sqrt(v_corner^2 + 2 x 3 m/s^2 x (distance - 4 m)). Above allowed + 1.5: brake (throttle -0.6); above allowed: coast.

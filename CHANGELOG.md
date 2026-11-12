@@ -28,6 +28,19 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.3 - drivers take the forks in your routes
+
+- **Vehicle routes are one road network.** Drawn routes that share a stretch, fork off each other or end on another
+  route (within 4 m of its line) are joined into roads and junctions. A driver now takes the shortest way along those
+  roads to the point nearest its flag and turns at the forks on the way. Before, it picked ONE route and drove it to its
+  end: where that route ended at a T junction (or the route that went on was a different one) it carried straight on
+  towards its flag, into the wall across the junction. On the Port Valdez and Atacama routes this makes 18 and 48 forks.
+- **Slowing down for corners.** Every corner in the next 60 m gets a speed to take it at (a 90 degree fork: 5 m/s, a tank
+  4 m/s), measured over 8 m in and 8 m out so a corner drawn as two or three points still counts as one sharp corner. The
+  driver brakes in time to make it - 1.7.2 only lifted off the throttle above 9 m/s and slid through 90 degree turns.
+- Measured in the test harness on a T junction: 1.7.2 drove 60 m straight past the junction; 1.7.3 slows from 9 to 6 m/s,
+  turns, and stays within 3 m of the road through both 90 degree corners.
+
 ## What changed in 1.7.2 - map pictures in the launcher
 
 - Every map in the launcher has a picture: its overhead map, the same one the game shows as the minimap. The maps list

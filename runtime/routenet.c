@@ -123,6 +123,127 @@ static void load_vroutes(void)
         float y = navg_ground_at(g_v[i].pts[k][0], g_v[i].pts[k][2]); g_v[i].pts[k][1] = isnan(y) ? 0 : y; }
 }
 
+
+/* ---- 1.7.3: the vehicle routes as one road network ----
+   Routes drawn in the 3D map share stretches (several start at the same HQ and run along the same road before they fork)
+   and end on each other (a branch ends where it meets another road). 1.7.0 picked ONE route and drove it to its end:
+   at a T junction where that route ended (or where the route that went on was another one) the driver carried straight
+   on towards its flag - into the wall across the junction. Now every route point is a node (points of different routes
+   within 3 m are the same node, a route end within 4 m of another route's line joins it), consecutive points are the
+   roads between them, and a driver's route is the shortest way along the roads from where it joins them to the node that
+   brings it nearest its flag - turning at the forks the network has. */
+#define RN_GMAX 16384
+#define RN_GEDGE (RN_GMAX * 6)
+static float g_gp[RN_GMAX][3]; static int g_gn;
+static int g_ga[RN_GEDGE], g_gb[RN_GEDGE]; static float g_gw[RN_GEDGE]; static int g_ge;
+static int g_gStart[RN_GMAX + 1], g_gAdj[RN_GEDGE * 2]; static float g_gAdjW[RN_GEDGE * 2];
+#define RN_HB 4096
+static int g_hHead[RN_HB], g_hNext[RN_GMAX];
+static unsigned hcell(float x, float z) { int cx = (int)floorf(x / 4.0f), cz = (int)floorf(z / 4.0f); return ((unsigned)cx * 73856093u ^ (unsigned)cz * 19349663u) % RN_HB; }
+static int gnode(const float *p)
+{
+    int cx = (int)floorf(p[0] / 4.0f), cz = (int)floorf(p[2] / 4.0f), best = -1; float bd = 3.0f;
+    for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) {
+        unsigned h = ((unsigned)(cx + dx) * 73856093u ^ (unsigned)(cz + dz) * 19349663u) % RN_HB;
+        for (int i = g_hHead[h]; i >= 0; i = g_hNext[i]) { float d = d2(g_gp[i], p); if (d < bd && fabsf(g_gp[i][1] - p[1]) < 3.0f) { bd = d; best = i; } }
+    }
+    if (best >= 0 || g_gn >= RN_GMAX) return best;
+    memcpy(g_gp[g_gn], p, 12); unsigned h = hcell(p[0], p[2]); g_hNext[g_gn] = g_hHead[h]; g_hHead[h] = g_gn;
+    return g_gn++;
+}
+/* (a road drawn twice - routes sharing a stretch - is one road: an edge is added once) */
+#define RN_EH 262144
+static int g_eHash[RN_EH];
+static void gedge(int a, int b, float w)
+{
+    if (a < 0 || b < 0 || a == b || g_ge >= RN_GEDGE) return;
+    int lo = a < b ? a : b, hi = a < b ? b : a; unsigned h = ((unsigned)lo * 2654435761u ^ (unsigned)hi * 40503u) % RN_EH;
+    for (int i = 0; i < RN_EH; i++, h = (h + 1) % RN_EH) {
+        int e = g_eHash[h];
+        if (e < 0) { g_eHash[h] = g_ge; break; }
+        if ((g_ga[e] == lo && g_gb[e] == hi)) { if (w < g_gw[e]) g_gw[e] = w; return; }
+    }
+    g_ga[g_ge] = lo; g_gb[g_ge] = hi; g_gw[g_ge] = w; g_ge++;
+}
+static void build_graph(void)
+{
+    g_gn = g_ge = 0; for (int i = 0; i < RN_HB; i++) g_hHead[i] = -1; for (int i = 0; i < RN_EH; i++) g_eHash[i] = -1;
+    static int ids[RN_VMAX][RN_PTS];
+    for (int i = 0; i < g_vn; i++) for (int k = 0; k < g_v[i].n; k++) {
+        ids[i][k] = gnode(g_v[i].pts[k]);
+        if (k) gedge(ids[i][k - 1], ids[i][k], d2(g_v[i].pts[k - 1], g_v[i].pts[k]));
+    }
+    /* route ends that stop on another route's line (between two of its points): joined to both points */
+    int joined = 0;
+    for (int i = 0; i < g_vn; i++) for (int e = 0; e < 2; e++) {
+        const float *p = e ? g_v[i].pts[g_v[i].n - 1] : g_v[i].pts[0]; int pid = e ? ids[i][g_v[i].n - 1] : ids[i][0];
+        int bj = -1, bk = 0; float bd = 4.0f;
+        for (int j = 0; j < g_vn; j++) { if (j == i) continue;
+            for (int k = 1; k < g_v[j].n; k++) {
+                const float *a = g_v[j].pts[k - 1], *b = g_v[j].pts[k];
+                float sx = b[0] - a[0], sz = b[2] - a[2], L2 = sx * sx + sz * sz, t = L2 > 1e-4f ? ((p[0] - a[0]) * sx + (p[2] - a[2]) * sz) / L2 : 0; t = fmaxf(0, fminf(1, t));
+                float q[3] = {a[0] + sx * t, a[1] + (b[1] - a[1]) * t, a[2] + sz * t}, d = d2(q, p);
+                if (d < bd && fabsf(q[1] - p[1]) < 3.0f) { bd = d; bj = j; bk = k; }
+            } }
+        if (bj < 0) continue;
+        int na = ids[bj][bk - 1], nb = ids[bj][bk];
+        if (na != pid && nb != pid) { gedge(pid, na, d2(p, g_v[bj].pts[bk - 1]) + bd); gedge(pid, nb, d2(p, g_v[bj].pts[bk]) + bd); joined++; }
+    }
+    /* adjacency (both ways: a road can be driven either way) */
+    memset(g_gStart, 0, sizeof(int) * (size_t)(g_gn + 1));
+    for (int e = 0; e < g_ge; e++) { g_gStart[g_ga[e] + 1]++; g_gStart[g_gb[e] + 1]++; }
+    for (int i = 0; i < g_gn; i++) g_gStart[i + 1] += g_gStart[i];
+    static int fill[RN_GMAX]; memcpy(fill, g_gStart, sizeof(int) * (size_t)g_gn);
+    for (int e = 0; e < g_ge; e++) { g_gAdj[fill[g_ga[e]]] = g_gb[e]; g_gAdjW[fill[g_ga[e]]++] = g_gw[e]; g_gAdj[fill[g_gb[e]]] = g_ga[e]; g_gAdjW[fill[g_gb[e]]++] = g_gw[e]; }
+    int forks = 0; for (int i = 0; i < g_gn; i++) if (g_gStart[i + 1] - g_gStart[i] >= 3) forks++;
+    if (g_vn) rt_log("routes: vehicle road network - %d route(s) as %d point(s), %d fork(s) and junction(s), %d route end(s) joined to the road they meet", g_vn, g_gn, forks, joined);
+}
+/* shortest way along the roads: every node within 60 m of the vehicle is a way in (cost: twice the distance to it, as
+   the drive there is off the roads); the way out is the node with the least (way so far + 2 x its distance to the flag)
+   among those that bring the vehicle at least 30 m nearer */
+static int graph_route(const float *from, const float *goal, float *out, int max, float *joinDist)
+{
+    if (g_gn < 2) return 0;
+    static float dist[RN_GMAX]; static int prev[RN_GMAX], src[RN_GMAX], heap[RN_GMAX * 4]; static unsigned char done[RN_GMAX];
+    int hn = 0;
+    #define HPUSH(v) do { if (hn < RN_GMAX * 4) { int c_ = hn++; heap[c_] = (v); while (c_ && dist[heap[(c_ - 1) / 2]] > dist[heap[c_]]) { int p_ = (c_ - 1) / 2, t_ = heap[p_]; heap[p_] = heap[c_]; heap[c_] = t_; c_ = p_; } } } while (0)
+    for (int i = 0; i < g_gn; i++) { dist[i] = 1e30f; prev[i] = -1; src[i] = -1; done[i] = 0; }
+    for (int i = 0; i < g_gn; i++) { float d = d2(g_gp[i], from); if (d < 60 && fabsf(g_gp[i][1] - from[1]) < 10) { dist[i] = d * 2; src[i] = i; HPUSH(i); } }
+    if (!hn) return 0;
+    float here = d2(from, goal), bestF = 1e30f; int bestT = -1;
+    while (hn) {
+        int u = heap[0]; heap[0] = heap[--hn];
+        { int c_ = 0; for (;;) { int l = 2 * c_ + 1, r = l + 1, m = c_; if (l < hn && dist[heap[l]] < dist[heap[m]]) m = l; if (r < hn && dist[heap[r]] < dist[heap[m]]) m = r; if (m == c_) break; int t_ = heap[m]; heap[m] = heap[c_]; heap[c_] = t_; c_ = m; } }
+        if (done[u]) continue; done[u] = 1;
+        float dg = d2(g_gp[u], goal);
+        if (here - dg >= 30) { float F = dist[u] + dg * 2; if (F < bestF) { bestF = F; bestT = u; } }
+        if (dist[u] > bestF) break;   /* (nothing cheaper is left) */
+        for (int a = g_gStart[u]; a < g_gStart[u + 1]; a++) { int v = g_gAdj[a]; float nd = dist[u] + g_gAdjW[a];
+            if (nd < dist[v]) { dist[v] = nd; prev[v] = u; src[v] = src[u]; HPUSH(v); } }
+    }
+    #undef HPUSH
+    if (bestT < 0) return 0;
+    static int chain[RN_GMAX]; int cn = 0;
+    for (int v = bestT; v >= 0 && cn < RN_GMAX; v = prev[v]) chain[cn++] = v;
+    float len = 0; for (int i = 1; i < cn; i++) len += d2(g_gp[chain[i - 1]], g_gp[chain[i]]);
+    if (len < 20) return 0;
+    /* too many points for the driver's route: keep the corners, drop points on the straights */
+    int step = 1; while (cn / step > max) step++;
+    int n = 0;
+    for (int i = cn - 1; i >= 0 && n < max; i--) {
+        int keep = i == cn - 1 || i == 0 || step == 1;
+        if (!keep && (cn - 1 - i) % step == 0) keep = 1;
+        if (!keep && i + 1 < cn && i > 0) {   /* a corner here: kept */
+            const float *a = g_gp[chain[i + 1]], *b = g_gp[chain[i]], *c = g_gp[chain[i - 1]];
+            float h1 = atan2f(b[0] - a[0], b[2] - a[2]), h2 = atan2f(c[0] - b[0], c[2] - b[2]), dh = fabsf(h2 - h1); if (dh > 3.14159265f) dh = 6.2831853f - dh;
+            if (dh > 0.35f) keep = 1;
+        }
+        if (keep) { memcpy(&out[n * 3], g_gp[chain[i]], 12); n++; }
+    }
+    if (joinDist) *joinDist = d2(from, g_gp[chain[cn - 1]]);
+    return n;
+}
+
 /* ---- the objectives and spawn areas the foot routes join */
 typedef struct End { float p[3]; char label[40]; int team; } End;
 static int ends_list(End *e, int max)
@@ -202,14 +323,14 @@ void rn_tick(double now)
     if (strcmp(k, g_key)) {
         snprintf(g_key, sizeof g_key, "%s", k);
         if (g_building) nav_cancel_path(RN_OWNER);
-        g_fn = g_vn = 0; g_fDirty = 0; g_building = 0; g_built = g_used = g_vUsed = 0; memset(g_pairFailed, 0, sizeof g_pairFailed);
+        g_fn = g_vn = 0; g_gn = g_ge = 0; g_fDirty = 0; g_building = 0; g_built = g_used = g_vUsed = 0; memset(g_pairFailed, 0, sizeof g_pairFailed);
         g_fStamp = g_vStamp = g_rStamp = -1; g_checkAt = 0; g_objAt = now + 5; g_imported = 0; g_objWritten = 0;
     }
     if (now >= g_checkAt) {   /* (re-read when the 3D map or LearnViewer saved new routes) */
         g_checkAt = now + 5;
         long long fs = stamp_of(".froutes"), vs = stamp_of(".vroutes"), rs = stamp_of(".routes");
         if (fs != g_fStamp && !g_fDirty) { g_fStamp = fs; load_froutes(); if (g_fn) rt_log("routes: %d foot route(s) loaded for %s", g_fn, g_key); }
-        if (vs != g_vStamp || rs != g_rStamp) { g_vStamp = vs; g_rStamp = rs; load_vroutes(); if (g_vn) rt_log("routes: %d vehicle route(s) loaded - drivers near one that leads to their flag drive it to its end", g_vn); }
+        if (vs != g_vStamp || rs != g_rStamp) { g_vStamp = vs; g_rStamp = rs; load_vroutes(); build_graph(); if (g_vn) rt_log("routes: %d vehicle route(s) loaded - drivers take the roads they make to their flag and keep to them", g_vn); }
     }
     /* (1.7.1: Squad Deathmatch has no flags - its spawns are written once the level has settled; the scanner every 5 s) */
     if (now >= g_objAt && (g_world.cpCount || g_world.mcomAllN || now - g_world.levelSince > 45)) { g_objAt = now + (g_cfg.scanMode ? 5 : 30); write_objectives(); g_objWritten = 1; }
@@ -282,7 +403,9 @@ int rn_pick_foot(const float *from, const float *goal, float *out, int max, floa
 int rn_pick_vehicle(const float *from, const float *goal, float *out, int max, float *joinDist, int *id)
 {
     if (!g_cfg.routes || !g_vn) return 0;
-    int n = pick(g_v, g_vn, from, goal, 0, 60, 1, out, max, joinDist, id);
+    int n = graph_route(from, goal, out, max, joinDist);   /* 1.7.3: along the road network, turning at its forks */
+    if (n >= 2) { if (id) *id = -1; g_vUsed++; return n; }
+    n = pick(g_v, g_vn, from, goal, 0, 60, 1, out, max, joinDist, id);
     if (n) g_vUsed++;
     return n;
 }

@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.7.2** (release 1.7). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.7.3** (release 1.8). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -75,6 +75,9 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   cut from the map, along the whole line of a barrier (1.6.9), and the vehicle stops and re-routes before it hits anything.
 - **Route reuse** (1.6.10): vehicle routes go first in the planner, and a route planned once from a spot to a flag is
   kept and reused by the next vehicle there, so drivers set off at once.
+- **Road network** (1.7.3): drawn vehicle routes that share a stretch, fork or end on each other become one network of
+  roads and junctions; drivers take the shortest way along it to their flag, turn at the forks and slow down for
+  corners in time (a 90 degree fork at 5 m/s).
 - **Vehicle routes they keep to** (1.7.0): a driver near a saved vehicle route that leads towards its flag drives it
   from start to end - aiming closer ahead, steering back from 2 m off the line, slowing down when off it, never
   re-planning around it. Only a barrier found across the route makes it go round and back onto the route. Draw them in
