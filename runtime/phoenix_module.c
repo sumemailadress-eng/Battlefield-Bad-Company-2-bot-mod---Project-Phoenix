@@ -59,8 +59,9 @@ static int file_size(const WCHAR *p, LONGLONG *size)
     WIN32_FILE_ATTRIBUTE_DATA a; if (!GetFileAttributesExW(p, GetFileExInfoStandard, &a)) return 0;
     *size = ((LONGLONG)a.nFileSizeHigh << 32) | a.nFileSizeLow; return 1;
 }
-/* the install's own navcache\ (older versions saved there) is merged in: files the shared folder lacks are copied, and a
-   .learn / .routes file is taken when it is bigger (more learned / more drawn). Nothing is deleted. */
+/* the install's own navcache\ (older versions saved there, and the routes that come with a release) is merged in: files
+   the shared folder lacks are copied, and a .learn / .routes / .vroutes / .froutes file is taken when it is bigger (more
+   learned / more drawn; a replaced route file is kept as .before-<version>). Nothing is deleted. */
 static void navcache_import(void)
 {
     CreateDirectoryW(g_navDir, NULL);
@@ -78,6 +79,13 @@ static void navcache_import(void)
             if (!file_size(dst, &ds)) { if (CopyFileW(src, dst, TRUE)) added++; continue; }
             const WCHAR *ext = wcsrchr(fd.cFileName, L'.');
             if (ext && (!_wcsicmp(ext, L".learn") || !_wcsicmp(ext, L".routes")) && ss > ds) { if (CopyFileW(src, dst, FALSE)) bigger++; }
+            else if (ext && (!_wcsicmp(ext, L".vroutes") || !_wcsicmp(ext, L".froutes")) && ss > ds) {
+                /* 1.7.4: route sets that come with a release (more routes than yours: a bigger file) are taken, and yours
+                   is kept beside it as <map>.vroutes.before-<version>, to go back to */
+                WCHAR bak[1260]; _snwprintf(bak, 1260, L"%ls.before-" L"%hs", dst, PHX_VERSION); bak[1259] = 0;
+                CopyFileW(dst, bak, TRUE);
+                if (CopyFileW(src, dst, FALSE)) bigger++;
+            }
             else kept++;
         } while (FindNextFileW(h, &fd));
         FindClose(h);
@@ -86,12 +94,12 @@ static void navcache_import(void)
         FILE *f = _wfopen(note, L"wb");
         if (f) { char a[1100]; WideCharToMultiByte(CP_ACP, 0, g_navDir, -1, a, sizeof a, NULL, NULL);
             fprintf(f, "Project Phoenix %s keeps its navigation cache and everything the bots learned in:\r\n\r\n    %s\r\n\r\n"
-                       "The files in this folder were merged into it (missing files copied, a bigger .learn / .routes taken).\r\n"
+                       "The files in this folder were merged into it (missing files copied, a bigger .learn / .routes / route file taken).\r\n"
                        "Every Phoenix version and install uses that one folder, so nothing is lost when you unzip a new version.\r\n", PHX_VERSION, a);
             fclose(f); }
     }
     char a[1100]; WideCharToMultiByte(CP_ACP, 0, g_navDir, -1, a, sizeof a, NULL, NULL);
-    rt_log("navcache: %s (shared by every Phoenix install) - from this install's navcache: %d file(s) added, %d bigger .learn/.routes taken, %d already there",
+    rt_log("navcache: %s (shared by every Phoenix install) - from this install's navcache: %d file(s) added, %d bigger .learn/.routes/route files taken, %d already there",
            a, added, bigger, kept);
 }
 

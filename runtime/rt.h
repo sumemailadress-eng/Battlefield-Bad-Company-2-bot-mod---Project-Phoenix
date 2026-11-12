@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "bc2_observe.h"
 
-#define PHX_VERSION "1.7.3"
+#define PHX_VERSION "1.7.4"
 #define MAX_BOTS 48
 #define MAX_CPS 16
 #define MAX_SPAWNS 64

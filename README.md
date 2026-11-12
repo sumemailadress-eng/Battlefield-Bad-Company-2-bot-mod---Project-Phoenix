@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.7.3** (release 1.8). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
+Current version: **1.7.4** (release 1.9). The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
@@ -75,6 +75,8 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   cut from the map, along the whole line of a barrier (1.6.9), and the vehicle stops and re-routes before it hits anything.
 - **Route reuse** (1.6.10): vehicle routes go first in the planner, and a route planned once from a spot to a flag is
   kept and reused by the next vehicle there, so drivers set off at once.
+- **Routes included** (1.7.4): ready-made vehicle routes for Atacama Desert and Port Valdez (Conquest) come in
+  `navcache/` - see [navcache/README.md](navcache/README.md). More maps will follow.
 - **Road network** (1.7.3): drawn vehicle routes that share a stretch, fork or end on each other become one network of
   roads and junctions; drivers take the shortest way along it to their flag, turn at the forks and slow down for
   corners in time (a 90 degree fork at 5 m/s).
@@ -232,6 +234,7 @@ Without MinGW, on Windows with LLVM clang and the Visual Studio 2022 Build Tools
 | `runtime/` | The bot runtime: world reading, bot brains, vehicles, learning, roads, the route network (`routenet.c`), indoor routes, classic launcher |
 | `src/` | Navigation grid and A* (`nav.c`), the player observer and the simulation-tick hook |
 | `harness/` | An offline test harness. A mock BC2 server and game simulation run the real runtime on Linux |
+| `navcache/` | Vehicle routes that come with Phoenix (copied into the shared navcache when the bots attach) |
 | `tools/Map3D/` | The 3D map and route editor (Node.js server + three.js page) |
 | `tools/thumbs/` | `PhoenixThumbs.cs`: makes the launcher's map pictures from your own game files (compiled by the launcher) |
 | `Phoenix-Launcher.ps1` | The launcher (PowerShell + WPF); `PHOENIX_LAUNCHER_TEST=1` prints what it finds |

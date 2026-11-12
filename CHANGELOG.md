@@ -28,6 +28,14 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.4 - routes come with Phoenix
+
+- **Ready-made vehicle routes** for **Atacama Desert** (Conquest: 28 routes from the US HQ, 48 forks) and **Port Valdez**
+  (Conquest: 9 routes, 18 forks), in `navcache\`. They reach the shared navcache when the bots attach, so drivers use
+  them from the first round. More maps will follow in later releases.
+- Route files from a release are taken when they hold more routes than yours (a bigger file); your own file is kept
+  beside it as `<map>.vroutes.before-1.7.4`. A map you have no routes for simply gets them.
+
 ## What changed in 1.7.3 - drivers take the forks in your routes
 
 - **Vehicle routes are one road network.** Drawn routes that share a stretch, fork off each other or end on another
