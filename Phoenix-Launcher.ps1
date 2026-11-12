@@ -10,7 +10,7 @@
 # map list format (a mode line, then "Levels/<map> <rounds>").
 param([string]$Portable = '')
 $ErrorActionPreference = 'Continue'
-$Version = '1.7.7'
+$Version = '1.7.8'
 
 # ---------------------------------------------------------------- launcher settings
 $setPath = Join-Path $PSScriptRoot 'Phoenix-Launcher.ini'
@@ -826,7 +826,7 @@ function Show-Preview([string]$code) {
 $sel = [int]$set.Selected; if ($sel -lt 1 -or $sel -gt 4) { $sel = 1 }
 function Cur-Srv { $srv[$script:sel] }
 function Read-List($s) {
-    $r = @{ Mode = 'CONQUEST'; Rows = @() }
+    $r = @{ Mode = 'CONQUEST'; Rows = @(); Bad = 0 }
     if (-not (Test-Path $s.MapList)) { return $r }
     $first = $true
     foreach ($l in Get-Content $s.MapList) {
@@ -834,7 +834,10 @@ function Read-List($s) {
         $p = $t -split '\s+'
         if ($first -and $p.Count -eq 1 -and $p[0] -notmatch '/') { $r.Mode = $p[0].ToUpper(); $first = $false; continue }
         $first = $false
-        $r.Rows += , @((Level-Code $p[0]), $(if ($p.Count -ge 2) { $p[1] } else { '1' }))
+        $c = Level-Code $p[0]
+        if (-not (Map-Def $c) -and $c -notmatch '^(MP|NAM|BC1|SP)_') { $r.Bad++; continue }   # (not a level: Levels/M etc. from the old ADD bug)
+        if ($r.Rows | Where-Object { $_[0] -ieq $c }) { continue }
+        $r.Rows += , @($c, $(if ($p.Count -ge 2) { $p[1] } else { '1' }))
     }
     return $r
 }
@@ -999,6 +1002,7 @@ function Update-BotSettings {
 }
 function Fill-Rotation([int]$keep = -1) {
     $s = Cur-Srv; $l = Read-List $s
+    if ($l.Bad -and $l.Rows.Count) { Write-List $s $l; Say "Server $($s.N): removed $($l.Bad) broken line(s) from maplist.txt (written by the old ADD TO LIST)." }
     $curMap = ''; if ($s.State -eq 'live' -and $s.Info) { $curMap = Level-Code $s.Info[5] }
     $ui.LstRot.Items.Clear()
     for ($i = 0; $i -lt $l.Rows.Count; $i++) {
@@ -1189,27 +1193,39 @@ $ui.BtnPlay.Add_Click({ Safe {
     } else { Say "Server $($s.N) will start on $(Map-Name $r[0])." }
     Fill-Rotation 0; Refresh-Servers
 } })
-function Picked-Maps { @($ui.LstMaps.SelectedItems | ForEach-Object { $script:shown[$ui.LstMaps.Items.IndexOf($_)] }) }
-$ui.BtnAdd.Add_Click({ Safe {
-    $picked = Picked-Maps
-    if (-not $picked.Count) { Say 'Pick one or more maps on the right first (Ctrl / Shift for several).'; return }
-    $m = Sel-Mode; $s = Cur-Srv; $l = Read-List $s
-    if ($l.Rows.Count -and $l.Mode -ne $m[0]) { Say "This list plays $(Mode-Name $l.Mode) - BC2 has one mode per list. Use REPLACE LIST or SWITCH LIST TO MODE."; return }
-    $vietList = @($l.Rows | Where-Object { $_[0] -like 'NAM_*' }).Count -gt 0
-    if ($l.Rows.Count -and ($vietList -ne [bool]$ui.ChkViet.IsChecked)) { Say 'Vietnam and BC2 maps cannot share a list (the server runs one or the other). Use REPLACE LIST.'; return }
-    $l.Mode = $m[0]; $added = 0
-    foreach ($d in $picked) { if ($l.Rows | Where-Object { $_[0] -ieq $d[0] }) { continue }; $l.Rows += , @($d[0], $set.Rounds); $added++ }
+# 1.7.8: the commas keep each map entry whole - without them PowerShell unrolled a single picked map into its parts
+# ("MP_001", "Panama Canal", "CONQUEST", 0) and ADD wrote Levels/M, Levels/P, Levels/C, Levels/0 into maplist.txt
+function Picked-Maps { , @($ui.LstMaps.SelectedItems | ForEach-Object { $i = $ui.LstMaps.Items.IndexOf($_); if ($i -ge 0 -and $i -lt $script:shown.Count) { , $script:shown[$i] } }) }
+function Replace-With($picked, $m) {
+    $s = Cur-Srv; $l = @{ Mode = $m[0]; Rows = @(foreach ($d in $picked) { , @($d[0], $set.Rounds) }) }
     Write-List $s $l; Fill-Rotation; Refresh-Servers
-    Say "Added $added map(s) to server $script:sel."
-} })
+    Say "Server ${script:sel}: $($picked.Count) map(s) in $($m[1])."
+}
+function Add-Picked {
+    $picked = Picked-Maps
+    if (-not $picked.Count) { Say 'Pick one or more maps on the right first (Ctrl / Shift for several), or double-click a map.'; return }
+    $m = Sel-Mode; $s = Cur-Srv; $l = Read-List $s
+    $vietList = @($l.Rows | Where-Object { $_[0] -like 'NAM_*' }).Count -gt 0
+    # BC2 runs one mode (and BC2 or Vietnam) per list: picking another one offers a new list instead of refusing
+    if ($l.Rows.Count -and ($l.Mode -ne $m[0] -or $vietList -ne [bool]$ui.ChkViet.IsChecked)) {
+        $what = "$(Mode-Name $l.Mode)$(if ($vietList) { ' (Vietnam)' })"
+        $ok = [Windows.MessageBox]::Show("Server $($script:sel)'s list plays $what. A BC2 server runs one mode per list, BC2 or Vietnam.`n`nStart a new list with the $($picked.Count) $($m[1]) map(s) you picked?", 'Project Phoenix', 'YesNo')
+        if ("$ok" -eq 'Yes') { Replace-With $picked $m }
+        return
+    }
+    $l.Mode = $m[0]; $added = 0; $had = 0
+    foreach ($d in $picked) { if ($l.Rows | Where-Object { $_[0] -ieq $d[0] }) { $had++; continue }; $l.Rows += , @($d[0], $set.Rounds); $added++ }
+    Write-List $s $l; Fill-Rotation ($l.Rows.Count - 1); Refresh-Servers
+    Say "Added $added map(s) to server $($script:sel)$(if ($had) { " ($had already in the list)" })."
+}
+$ui.LstMaps.Add_MouseDoubleClick({ Safe { Add-Picked } })
+$ui.BtnAdd.Add_Click({ Safe { Add-Picked } })
 $ui.BtnReplace.Add_Click({ Safe {
     $picked = Picked-Maps; $m = Sel-Mode
     if (-not $picked.Count) { $picked = $script:shown }
     $ok = [Windows.MessageBox]::Show("Replace server $($script:sel)'s map list with $($picked.Count) map(s) in $($m[1])?", 'Project Phoenix', 'YesNo')
     if ("$ok" -ne 'Yes') { return }
-    $s = Cur-Srv; $l = @{ Mode = $m[0]; Rows = @(foreach ($d in $picked) { , @($d[0], $set.Rounds) }) }
-    Write-List $s $l; Fill-Rotation; Refresh-Servers
-    Say "Server ${script:sel}: $($picked.Count) map(s) in $($m[1])."
+    Replace-With $picked $m
 } })
 # every map in the list -> the same map's level for the chosen mode (maps without that mode are dropped)
 $ui.BtnAllMode.Add_Click({ Safe {

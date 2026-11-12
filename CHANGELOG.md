@@ -28,6 +28,18 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.8 - adding maps in the launcher works
+
+- **ADD TO LIST was broken for a single map.** Picking one map and pressing ADD TO LIST wrote its parts into
+  `maplist.txt` as four bogus lines - `Levels/M`, `Levels/P`, `Levels/C`, `Levels/0` - instead of the map.
+  (PowerShell unrolled the one picked map entry; picking several happened to look right in the list.) Fixed.
+- **Broken lists repair themselves:** lines in `maplist.txt` that aren't a BC2 level are dropped (and duplicates removed)
+  the next time the launcher shows that server's list, with a note in the status bar.
+- **Double-click** a map on the right to add it.
+- **Another mode or BC2/Vietnam no longer just refuses:** BC2 runs one mode per list, so adding Rush maps to a Conquest
+  list (or Vietnam maps to a BC2 list) now asks whether to start a new list with the maps you picked.
+- The status bar says how many picked maps were already in the list.
+
 ## What changed in 1.7.7 - tanks fire further, drivers take another road when one is blocked
 
 - **Tanks and IFVs engage at longer range.** A tank's or IFV's main gun now picks targets out to 450 m (it was 260 m),
