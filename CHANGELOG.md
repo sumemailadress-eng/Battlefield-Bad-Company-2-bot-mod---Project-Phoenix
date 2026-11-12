@@ -28,6 +28,27 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.7 - tanks fire further, drivers take another road when one is blocked
+
+- **Tanks and IFVs engage at longer range.** A tank's or IFV's main gun now picks targets out to 450 m (it was 260 m),
+  and enemy vehicles count as nearer than they are, so armour is engaged out to about 640 m. Other gun seats reach
+  300 m. The aim already allows for the shell's travel time and drop. The log shows long shots: "engages an enemy
+  vehicle 611 m away".
+- **No extra lag from the longer range:** the gunner now checks the nearest targets first and casts at most 5
+  line-of-sight rays per target pick (before, every enemy nearer than the best so far was checked - with a 450 m range
+  that could be dozens of rays three times a second for each gunner).
+- **A blocked road is closed for every driver.** When a driver on a saved road finds a barrier across it, or gets stuck
+  there, that stretch of the road network (8 m round the spot) is closed for 4 minutes. Drivers then take the next-best
+  way along the other saved roads. Log: "routes: the road at (x, z) is blocked - closed for 240 s, drivers take another
+  way".
+- **Drivers already on their way change road early.** A driver whose remaining route runs through a newly closed stretch
+  takes another road at once ("road ahead is closed - takes another road"), instead of driving up to the barrier first.
+  This check runs only when a road is closed, so it costs nothing on normal ticks.
+- If the saved roads offer no other way while a road is closed, the driver uses the drive map, which has the barrier
+  cut out, to go round it.
+- Tested in the harness: a barrier row dropped across a saved road that has a detour. In every run where a driver
+  reached the barrier (4 runs), it backed off and took the detour. Closures are cleared when the map changes.
+
 ## What changed in 1.7.6 - rubber-banding fixed (the indoor survey)
 
 - **Cause:** the survey that looks for the way into a building (an M-COM upstairs, or any spot within 45 m that the grid

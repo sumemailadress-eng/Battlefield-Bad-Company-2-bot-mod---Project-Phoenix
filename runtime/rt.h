@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "bc2_observe.h"
 
-#define PHX_VERSION "1.7.6"
+#define PHX_VERSION "1.7.7"
 #define MAX_BOTS 48
 #define MAX_CPS 16
 #define MAX_SPAWNS 64
@@ -194,6 +194,11 @@ void rn_tick(double now);
 int  rn_pick_foot(const float *from, const float *goal, float *out, int max, float *joinDist, int *id);
 int  rn_pick_vehicle(const float *from, const float *goal, float *out, int max, float *joinDist, int *id);
 void rn_foot_failed(int id);
+/* 1.7.7: a road found blocked (a barrier across it, a vehicle stuck there): its stretch of the road network is closed for
+   a while, so drivers take another way; rn_block_serial() changes whenever one is closed */
+void rn_vehicle_block(const float *pos, float radius, double now);
+int  rn_block_serial(void);
+int  rn_path_blocked(const float *pts, int n, int from);
 void rn_status(void);
 const char *navg_last_error(void);
 int  navg_mark_water(const float *pos, float radius);

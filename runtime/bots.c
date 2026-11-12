@@ -78,7 +78,7 @@ typedef struct Bot {
     float cornerV;   /* 1.7.3: the speed allowed now for the corners ahead */
     /* 1.7.0 the route network: a foot route being walked, a vehicle route being driven */
     float rt[RN_PTS * 3]; int rtN, rtIdx, rtOn, rtId; float rtGoal[3]; double rtPickAt, rtSkipAt, rtClearAt; int rtClear;
-    int pathStrict;
+    int pathStrict; int blockSerial;   /* 1.7.7: the road closures this driver's route was last checked against */
     double heldUntil[BC2_EiaUndefined];
     float levels[BC2_EiaUndefined];
     int pulse[BC2_EiaUndefined];
@@ -1521,32 +1521,41 @@ static int veh_los(const float *eye, const float *target, float targetRadius)
     float k = fminf(5.5f, len * 0.4f) / len, st[3] = {eye[0] + d[0] * k, eye[1] + d[1] * k, eye[2] + d[2] * k};
     return los_clear(st, target, targetRadius);
 }
+/* 1.7.7: candidates nearest first, and at most VT_LOS line-of-sight checks a pick. 1.7.6 checked every enemy closer than
+   the best so far in roster order - with tank guns reaching 450 m that would be dozens of rays 3x a second per gunner.
+   Enemy vehicles count as 0.7x as far (armour first). */
+#define VT_LOS 5
 static int vehicle_target(Bot *b, const float *pos, float range, float *out, int *isVeh)
 {
-    float best = range; int found = 0;
+    struct { float d, c[3], r; uint32_t ref; int veh; } cand[96]; int cn = 0;
     float eye[3] = {pos[0], pos[1] + 2.2f, pos[2]};
-    for (int i = 0; i < g_world.obs.count; i++) {
+    for (int i = 0; i < g_world.obs.count && cn < 96; i++) {
         const BC2ObservedPlayer *t = &g_world.obs.players[i];
         if (t->team < 1 || (int)t->team > nteams() || (int)t->team == b->team || !t->soldierValid || !t->transformValid || t->health <= 0) continue;
-        float d = dist3(t->position, pos); if (d > best || d < 3) continue;
-        float c[3] = {t->position[0], t->position[1] + 1.2f, t->position[2]};
-        if (!veh_los(eye, c, 2.0f)) continue;
-        best = d; memcpy(out, c, 12); *isVeh = 0; found = 1; b->tTgtRef = t->pointer; b->tTgtVeh = 0;
+        float d = dist3(t->position, pos); if (d > range || d < 3) continue;
+        cand[cn].d = d; cand[cn].c[0] = t->position[0]; cand[cn].c[1] = t->position[1] + 1.2f; cand[cn].c[2] = t->position[2];
+        cand[cn].r = 2.0f; cand[cn].ref = t->pointer; cand[cn].veh = 0; cn++;
     }
-    /* enemy vehicles count as closer (armour first) */
-    for (int i = 0; i < g_world.vehCount; i++) {
+    for (int i = 0; i < g_world.vehCount && cn < 96; i++) {
         const VehicleInfo *v = &g_world.veh[i];
         if (v->kind == VK_FIXED && v->seats <= 1) continue;
         uint32_t occ = 0; for (int s2 = 0; s2 < v->seats && !occ; s2++) occ = eng_vehicle_occupant(v->entity, s2);
         if (!occ) continue;
         int tm = player_team(occ); if (tm < 1 || tm == b->team) continue;
         VehicleInfo now; if (!world_vehicle_read(v->entity, &now)) continue;
-        float d = dist3(now.pos, pos) * 0.7f; if (d > best || d < 3) continue;
-        float c[3] = {now.pos[0], now.pos[1] + 1.5f, now.pos[2]};
-        if (!veh_los(eye, c, 4.5f)) continue;
-        best = d; memcpy(out, c, 12); *isVeh = 1; found = 1; b->tTgtRef = v->entity; b->tTgtVeh = 1;
+        float d = dist3(now.pos, pos) * 0.7f; if (d > range || d < 3) continue;
+        cand[cn].d = d; cand[cn].c[0] = now.pos[0]; cand[cn].c[1] = now.pos[1] + 1.5f; cand[cn].c[2] = now.pos[2];
+        cand[cn].r = 4.5f; cand[cn].ref = v->entity; cand[cn].veh = 1; cn++;
     }
-    return found;
+    for (int k = 0, checks = 0; k < cn && checks < VT_LOS; k++) {
+        int m = k; for (int j = k + 1; j < cn; j++) if (cand[j].d < cand[m].d) m = j;   /* (next nearest) */
+        if (m != k) { __typeof__(cand[0]) tmp = cand[k]; cand[k] = cand[m]; cand[m] = tmp; }
+        checks++;
+        if (!veh_los(eye, cand[k].c, cand[k].r)) continue;
+        memcpy(out, cand[k].c, 12); *isVeh = cand[k].veh; b->tTgtRef = cand[k].ref; b->tTgtVeh = cand[k].veh;
+        return 1;
+    }
+    return 0;
 }
 /* direction from the gun to the target as angles in the hull frame */
 static void hull_angles(const VehicleInfo *vi, const float *from, const float *to, float flip, float *rel, float *pit)
@@ -1684,14 +1693,18 @@ static int vehicle_shoot(Bot *b, double now, const VehicleInfo *vi, int seat, in
     const TurPath *yp = t ? &t->yaw : NULL, *pp = t ? &t->pitch : NULL; int hp = t ? t->havePitch : 0, known = 0;
     if (t) for (int k = 0; k < t->entN; k++) if (t->ents[k] == vi->entity) { yp = &t->entYaw[k]; pp = &t->entPitch[k]; hp = t->entHavePitch[k]; known = 1; break; }
     float tp[3]; int isVeh = 0;
-    float range = vi->kind == VK_HELI ? 300 : seat == 0 ? 220 : 180;
+    /* 1.7.7: tank and IFV guns reach further - a main gun 450 m (enemy vehicles count as 0.7x as far, so armour out to
+       ~640 m), other ground gun seats 300 m; helicopters as before. The aim already allows for the shell's drop. */
+    float range = vi->kind == VK_HELI ? 300 : (seat == 0 && veh_armoured(vi->name)) ? 450 : seat == 0 ? 260 : 300;
     if (now >= b->shootAt) {   /* re-pick the target 3x a second */
         b->shootAt = now + 0.33;
         float hp[3];
         uint32_t he = 0;
         if (vi->kind == VK_HELI && !veh_on_ground(vi->pos) && enemy_heli(b, vi, 450, hp, &he)) {   /* helicopter gunners: enemy helicopters first */
             memcpy(b->tTarget, hp, 12); b->engageUntil = now + 1.0; b->tTgtRef = he; b->tTgtVeh = 1;
-        } else if (vehicle_target(b, vi->pos, range, tp, &isVeh)) { memcpy(b->tTarget, tp, 12); b->engageUntil = now + 1.0; }
+        } else if (vehicle_target(b, vi->pos, range, tp, &isVeh)) {
+            if (now > b->engageUntil + 3 && dist3(vi->pos, tp) > 260) { static int lr; if (lr++ < 30 || g_cfg.verbose) rt_log("vehicles: %s in '%s' engages %s %.0f m away", b->name, vi->name, isVeh ? "an enemy vehicle" : "an enemy", dist3(vi->pos, tp)); }
+            memcpy(b->tTarget, tp, 12); b->engageUntil = now + 1.0; }
     }
     if (now > b->engageUntil) { /* no target: bring the turret back to the front */
         if (t && t->yawAct < BC2_EiaUndefined) { float r, p; if (tur_read(vi->entity, yp, vi, &r, &p)) b->levels[t->yawAct] = fmaxf(-1, fminf(1, t->yawSign * wrap_pi(0 - wrap_pi(r - t->yawOff)) * 2.0f)); }
@@ -2387,6 +2400,15 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
        re-planned every 15 s, not swapped for the drive map's own plan, not dropped when the driver strays (it steers
        back onto it). A driver far from the route's nearest point first takes the drive map to that point. */
     if (b->pathStrict && (dist2d(b->pathGoal, goal) > 5 || !b->pathLen || b->pastEnd)) b->pathStrict = 0;   /* a new flag, a dropped route, or rolled past its end */
+    /* 1.7.7: a road closed since this route was planned (another driver found it blocked): if the rest of the route runs
+       through it, take another road now - checked only when a closure is added, so it costs nothing on most ticks */
+    if (b->blockSerial != rn_block_serial()) {
+        b->blockSerial = rn_block_serial();
+        if (b->pathStrict && b->pathLen && rn_path_blocked(b->path, b->pathLen, b->pathIdx)) {
+            b->pathStrict = 0; b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12);
+            static int ar; if (ar++ < 30) rt_log("routes: %s's road ahead is closed - '%s' takes another road", b->name, vi.name);
+        }
+    }
     if (b->pathStrict && b->pathLen && b->pathIdx >= b->pathLen - 1 && dist2d(vi.pos, &b->path[(b->pathLen - 1) * 3]) < 10) {
         b->pathStrict = 0; b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12);   /* its end: the drive map from here */
         static int el; if (el++ < 20) rt_log("routes: %s's '%s' reached the end of its saved route", b->name, vi.name);
@@ -2651,6 +2673,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
                 if (cut) {
                     static const char *kname[] = {"?", "a low obstacle", "a step", "a drop"};
                     static int hl; if (hl++ < 40 || g_cfg.verbose) rt_log("vehicles: %s sees %s %.1f m ahead of '%s' at (%.0f, %.0f) - %d drive cell(s) cut, new route", b->name, kname[kind], hz, vi.name, where[0], where[2], cut);
+                    if (b->pathStrict && kind == 1) rn_vehicle_block(where, 8, now);   /* 1.7.7: a barrier across the road - the road is closed here for everyone */
                     if (b->pathStrict) { b->pathStrict = 0; rt_log("routes: %s's saved route is blocked there - it goes round and back onto the route", b->name); }   /* 1.7.0 */
                     b->pathAt = 0; memcpy(b->pathFrom, vi.pos, 12);
                     /* 1.6.9: and stop on the spot - 1.6.8 drove on along the old route while the new one was planned, into the
@@ -2735,6 +2758,8 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
                 float ahead[3] = {vi.pos[0] + sinf(vehHeading) * 5, vi.pos[1], vi.pos[2] + cosf(vehHeading) * 5};
                 int n = navg_vehicle_block(ahead, 3.5f); vroute_drop_near(ahead);
                 learn_vehicle_stuck(ahead);   /* 1.6.5: kept for the map, cut every round */
+                rn_vehicle_block(ahead, 8, now);   /* 1.7.7: and that stretch of road is closed for a while: drivers take another */
+                b->pathStrict = 0;
                 rt_log("vehicles: %s stuck in '%s' at (%.0f, %.0f) - blocked %d drive cell(s) there, new route", b->name, vi.name, ahead[0], ahead[2], n);
                 b->pathAt = 0; b->pathLen = 0;
             }

@@ -272,7 +272,7 @@ static void build_vehicles(void)
     float at[4][3] = {{-335, 0, 15}, {335, 0, -15}, {-320, 0, -20}, {320, 0, 20}};
     /* VODNIK and MI24 have no readable name (like most live BC2 vehicles): the spawner names them */
     const char *nm[4] = {"ID_P_VNAME_HMMWV", "", "ID_P_VNAME_UH60", ""};
-    const char *bp[4] = {"Vehicles/US/HMMWV/HMMWV", "Vehicles/RU/Vodnik/Vodnik", "Vehicles/US/UH60/UH60", "Vehicles/RU/Mi24/Mi24"};
+    const char *bp[4] = {getenv("TANKS") ? "Vehicles/US/M1A2/M1A2" : "Vehicles/US/HMMWV/HMMWV", getenv("TANKS") ? "Vehicles/RU/T90/T90" : "Vehicles/RU/Vodnik/Vodnik", "Vehicles/US/UH60/UH60", "Vehicles/RU/Mi24/Mi24"};
     int tm[4] = {1, 2, 1, 2};
     for (int i = 0; i < 4; i++) {
         uint32_t e = entity_new(0x200, RB(VA_VEHICLE_VT), at[i][0], terrain(at[i][0], at[i][2]), at[i][2]), d = alloc(0x260);
@@ -383,6 +383,7 @@ static void vehicles_step(float dt)
         WF(v->e + 0x34, v->hp);
         float h = atan2f(m[8], m[10]), x = m[12], z = m[14];
         MPlayer *d = v->occ[0] ? mp_of(v->occ[0]) : NULL;
+        if (getenv("VTRACE") && !v->heli && d && fmodf(g_mockTime, 2.0f) < dt) fprintf(stderr, "vtrace %.0f veh %d at (%.0f, %.0f) speed %.1f\n", g_mockTime, i, x, z, v->speed);
         {   /* turrets (rate inputs): driver's on CameraYaw / CameraPitch (not on helicopters), gunner's on Yaw / Pitch */
             if (!v->heli && i == 1) {   /* the Vodnik's turret follows the driver's aim (world yaw / pitch of the input), 1.0 rad/s */
                 MPlayer *dv = v->occ[0] ? mp_of(v->occ[0]) : NULL;
@@ -662,6 +663,10 @@ void mock_step(float dt)
         static int done; if (!done && g_mockTime > atof(getenv("LATEBLOCK"))) { done = 1;
             for (int k = 0; k < 3; k++) { float x = 230 - k * 70.0f, y = terrain(x, 0); add_box(x - 0.3f, y - 1, -14, x + 0.3f, y + 0.85f, 8); add_box(x - 0.4f, y - 1, -30, x + 0.4f, y + 0.9f, -29); }
             fprintf(stderr, "mock: barriers across the road at x 230/160/90 (z -14..8) t=%.0f\n", g_mockTime); } }
+    if (getenv("ROADBLOCK")) {   /* 1.7.7: a barrier row across the saved road (z -31) at x 160, dropped after the scan */
+        static int done; if (!done && g_mockTime > atof(getenv("ROADBLOCK"))) { done = 1;
+            float y = terrain(160, -31); add_box(159.6f, y - 1, -42, 160.4f, y + 0.85f, -20);
+            fprintf(stderr, "mock: barrier row across the saved road at x 160 (z -42..-20) t=%.0f\n", g_mockTime); } }
     vehicles_step(dt);
     if (getenv("HUMANDRIVE") && human && R(human + PL_SOLDIER)) {   /* 1.6: the human drives a ground vehicle round a loop */
         static int vi = -1; static int seg; static float t;

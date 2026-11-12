@@ -198,28 +198,67 @@ static void build_graph(void)
     int forks = 0; for (int i = 0; i < g_gn; i++) if (g_gStart[i + 1] - g_gStart[i] >= 3) forks++;
     if (g_vn) rt_log("routes: vehicle road network - %d route(s) as %d point(s), %d fork(s) and junction(s), %d route end(s) joined to the road they meet", g_vn, g_gn, forks, joined);
 }
+/* 1.7.7: closed stretches - nodes within the radius of a spot where a road was found blocked, for RN_BLOCK_S seconds */
+#define RN_BLOCKS 32
+#define RN_BLOCK_S 240.0
+static struct { float p[3], r; double until; } g_blk[RN_BLOCKS]; static int g_blkN, g_blkSerial; static double g_blkNow;
+void rn_vehicle_block(const float *pos, float radius, double now)
+{
+    g_blkNow = now;
+    for (int i = 0; i < g_blkN; i++) if (g_blk[i].until > now && d2(g_blk[i].p, pos) < 6) { g_blk[i].until = now + RN_BLOCK_S; return; }
+    int k = g_blkN < RN_BLOCKS ? g_blkN++ : 0;
+    if (k == 0 && g_blkN == RN_BLOCKS) { double o = 1e30; for (int i = 0; i < RN_BLOCKS; i++) if (g_blk[i].until < o) { o = g_blk[i].until; k = i; } }
+    memcpy(g_blk[k].p, pos, 12); g_blk[k].r = fmaxf(radius, 6.0f); g_blk[k].until = now + RN_BLOCK_S; g_blkSerial++;
+    static int bl; if (bl++ < 20) rt_log("routes: the road at (%.0f, %.0f) is blocked - closed for %.0f s, drivers take another way", pos[0], pos[2], RN_BLOCK_S);
+}
+int rn_block_serial(void) { return g_blkSerial; }
+static int blocked_at(const float *p)
+{
+    for (int i = 0; i < g_blkN; i++) if (g_blk[i].until > g_blkNow && d2(g_blk[i].p, p) < g_blk[i].r && fabsf(g_blk[i].p[1] - p[1]) < 6) return 1;
+    return 0;
+}
+/* a straight drive from a to b passes through a closed stretch (the way onto the network must not run through one) */
+static int seg_blocked(const float *a, const float *b)
+{
+    for (int i = 0; i < g_blkN; i++) { if (g_blk[i].until <= g_blkNow) continue;
+        float dx = b[0] - a[0], dz = b[2] - a[2], cx = g_blk[i].p[0] - a[0], cz = g_blk[i].p[2] - a[2];
+        if (cx * cx + cz * cz < g_blk[i].r * g_blk[i].r) { if (cx * dx + cz * dz > 0) return 1; continue; }   /* (already at it: only a way back out) */
+        float L = dx * dx + dz * dz, t = L > 0 ? ((g_blk[i].p[0] - a[0]) * dx + (g_blk[i].p[2] - a[2]) * dz) / L : 0;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        float q[3] = {a[0] + dx * t, g_blk[i].p[1], a[2] + dz * t}; if (d2(q, g_blk[i].p) < g_blk[i].r) return 1; }
+    return 0;
+}
+static int blocks_active(void) { for (int i = 0; i < g_blkN; i++) if (g_blk[i].until > g_blkNow) return 1; return 0; }
+int rn_path_blocked(const float *pts, int n, int from)
+{
+    g_blkNow = rt_now(); if (!blocks_active()) return 0;
+    for (int i = from < 0 ? 0 : from; i < n; i++) if (blocked_at(&pts[i * 3])) return 1;
+    return 0;
+}
+
 /* shortest way along the roads: every node within 60 m of the vehicle is a way in (cost: twice the distance to it, as
    the drive there is off the roads); the way out is the node with the least (way so far + 2 x its distance to the flag)
    among those that bring the vehicle at least 30 m nearer */
 static int graph_route(const float *from, const float *goal, float *out, int max, float *joinDist)
 {
     if (g_gn < 2) return 0;
+    g_blkNow = rt_now();
     static float dist[RN_GMAX]; static int prev[RN_GMAX], src[RN_GMAX], heap[RN_GMAX * 4]; static unsigned char done[RN_GMAX];
     int hn = 0;
     #define HPUSH(v) do { if (hn < RN_GMAX * 4) { int c_ = hn++; heap[c_] = (v); while (c_ && dist[heap[(c_ - 1) / 2]] > dist[heap[c_]]) { int p_ = (c_ - 1) / 2, t_ = heap[p_]; heap[p_] = heap[c_]; heap[c_] = t_; c_ = p_; } } } while (0)
-    for (int i = 0; i < g_gn; i++) { dist[i] = 1e30f; prev[i] = -1; src[i] = -1; done[i] = 0; }
-    for (int i = 0; i < g_gn; i++) { float d = d2(g_gp[i], from); if (d < 60 && fabsf(g_gp[i][1] - from[1]) < 10) { dist[i] = d * 2; src[i] = i; HPUSH(i); } }
+    for (int i = 0; i < g_gn; i++) { dist[i] = 1e30f; prev[i] = -1; src[i] = -1; done[i] = blocked_at(g_gp[i]) ? 1 : 0; }   /* (a closed stretch is never entered) */
+    for (int i = 0; i < g_gn; i++) { float d = d2(g_gp[i], from); if (!done[i] && d < 60 && fabsf(g_gp[i][1] - from[1]) < 10 && !(g_blkN && seg_blocked(from, g_gp[i]))) { dist[i] = d * 2; src[i] = i; HPUSH(i); } }
     if (!hn) return 0;
     float here = d2(from, goal), bestF = 1e30f; int bestT = -1;
     while (hn) {
         int u = heap[0]; heap[0] = heap[--hn];
         { int c_ = 0; for (;;) { int l = 2 * c_ + 1, r = l + 1, m = c_; if (l < hn && dist[heap[l]] < dist[heap[m]]) m = l; if (r < hn && dist[heap[r]] < dist[heap[m]]) m = r; if (m == c_) break; int t_ = heap[m]; heap[m] = heap[c_]; heap[c_] = t_; c_ = m; } }
-        if (done[u]) continue; done[u] = 1;
+        if (done[u]) continue; done[u] = 2;
         float dg = d2(g_gp[u], goal);
         if (here - dg >= 30) { float F = dist[u] + dg * 2; if (F < bestF) { bestF = F; bestT = u; } }
         if (dist[u] > bestF) break;   /* (nothing cheaper is left) */
         for (int a = g_gStart[u]; a < g_gStart[u + 1]; a++) { int v = g_gAdj[a]; float nd = dist[u] + g_gAdjW[a];
-            if (nd < dist[v]) { dist[v] = nd; prev[v] = u; src[v] = src[u]; HPUSH(v); } }
+            if (!done[v] && nd < dist[v]) { dist[v] = nd; prev[v] = u; src[v] = src[u]; HPUSH(v); } }
     }
     #undef HPUSH
     if (bestT < 0) return 0;
@@ -323,7 +362,7 @@ void rn_tick(double now)
     if (strcmp(k, g_key)) {
         snprintf(g_key, sizeof g_key, "%s", k);
         if (g_building) nav_cancel_path(RN_OWNER);
-        g_fn = g_vn = 0; g_gn = g_ge = 0; g_fDirty = 0; g_building = 0; g_built = g_used = g_vUsed = 0; memset(g_pairFailed, 0, sizeof g_pairFailed);
+        g_fn = g_vn = 0; g_gn = g_ge = 0; g_blkN = 0; g_blkSerial++; g_fDirty = 0; g_building = 0; g_built = g_used = g_vUsed = 0; memset(g_pairFailed, 0, sizeof g_pairFailed);
         g_fStamp = g_vStamp = g_rStamp = -1; g_checkAt = 0; g_objAt = now + 5; g_imported = 0; g_objWritten = 0;
     }
     if (now >= g_checkAt) {   /* (re-read when the 3D map or LearnViewer saved new routes) */
@@ -405,6 +444,7 @@ int rn_pick_vehicle(const float *from, const float *goal, float *out, int max, f
     if (!g_cfg.routes || !g_vn) return 0;
     int n = graph_route(from, goal, out, max, joinDist);   /* 1.7.3: along the road network, turning at its forks */
     if (n >= 2) { if (id) *id = -1; g_vUsed++; return n; }
+    if (g_gn >= 2 && blocks_active()) return 0;   /* 1.7.7: the network has no open way (a road closed): the grid planner goes round instead */
     n = pick(g_v, g_vn, from, goal, 0, 60, 1, out, max, joinDist, id);
     if (n) g_vUsed++;
     return n;
