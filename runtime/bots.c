@@ -1572,7 +1572,9 @@ static void hull_angles(const VehicleInfo *vi, const float *from, const float *t
 {
     float d[3] = {(to[0] - from[0]) * flip, (to[1] - from[1]) * flip, (to[2] - from[2]) * flip};
     float l0 = d[0] * vi->right[0] + d[1] * vi->right[1] + d[2] * vi->right[2];
-    float l1 = d[0] * vi->up[0] + d[1] * vi->up[1] + d[2] * vi->up[2];
+    /* 1.8.1: up is up - 1.0.1 to 1.8.0 flipped the height too on a vehicle whose hull axis runs backwards (flip -1), so
+       its gun went up for a target below it and down for one above: "they aim too high" */
+    float l1 = ((to[0] - from[0]) * vi->up[0] + (to[1] - from[1]) * vi->up[1] + (to[2] - from[2]) * vi->up[2]);
     float l2 = d[0] * vi->fwd[0] + d[1] * vi->fwd[1] + d[2] * vi->fwd[2];
     *rel = atan2f(l0, l2); *pit = atan2f(l1, hypotf(l0, l2));
 }
@@ -1683,7 +1685,7 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
         float back = tur_change(vi->entity, vi, b->tCand, 1);
         if (back * b->tD1 < 0 && fabsf(back) > 0.02f) {
             const TurPath *pp = tur_path(b->tCand);
-            if (pp) { t->pitch = *pp; t->pitchAct = pitchList[b->tAct]; { float p0 = tur_pit0(b->tCand); t->pitchOff = p0 > 90 || fabsf(p0) < 0.3f ? 0 : p0; } t->pitchSign = (b->tD1 > 0) == (b->tPush > 0) ? 1.0f : -1.0f; t->havePitch = 1;
+            if (pp) { t->pitch = *pp; t->pitchAct = pitchList[b->tAct]; { float p0 = tur_pit0(b->tCand); t->pitchOff = p0 > 90 || fabsf(p0) < 1.2f ? 0 : p0; }   /* 1.8.1: only a part modelled pointing up or down (60 deg+): a gun someone left raised 20 degrees became an "offset" and the bot then aimed 20 degrees high */ t->pitchSign = (b->tD1 > 0) == (b->tPush > 0) ? 1.0f : -1.0f; t->havePitch = 1;
                 rt_log("vehicles: '%s' seat %d - gun elevates with %s (%+.0f)", vi->name, seat, t->pitchAct == TUR_VIEW_PITCH ? "the aim (view)" : t->pitchAct == BC2_EiaCameraPitch ? "CameraPitch" : "Pitch", t->pitchSign); }
             b->tStage = 8; return NULL;
         }
@@ -1754,7 +1756,10 @@ static int vehicle_shoot(Bot *b, double now, const VehicleInfo *vi, int seat, in
     {   /* lead the target and hold over for the drop: main guns / heavy guns ~300 m/s, machine guns ~600 m/s */
         float tf = dist3(vi->pos, tp) / (seat == 0 || vi->kind == VK_HELI ? 300.0f : 600.0f);
         for (int j = 0; j < 3; j++) tp[j] += b->tgtVel[j] * tf;
-        tp[1] += 0.5f * 9.81f * tf * tf;
+        /* 1.8.1: hold-over for shells only (main guns), half of it and from 100 m: the full drop of a 300 m/s round put
+           every shot 2-5 m high at 200-300 m, and machine guns got it too */
+        float dd = dist3(vi->pos, tp);
+        if ((seat == 0 && veh_armoured(vi->name)) && dd > 100) { float t2 = (dd - 100) / 300.0f; tp[1] += 0.25f * 9.81f * t2 * t2; }
     }
     float gun[3] = {vi->pos[0] + vi->up[0] * 2.4f, vi->pos[1] + vi->up[1] * 2.4f, vi->pos[2] + vi->up[2] * 2.4f};
     int mainGun = seat == 0 && vi->kind != VK_HELI && veh_armoured(vi->name);
@@ -2269,7 +2274,9 @@ static void veh_traffic(Bot *b, const VehicleInfo *vi, float vehHeading, float f
     if (sp > 1.5f && along < -0.5f) { b->laneUntil = now + 3.0; b->laneSide = 1; return; }   /* coming at us: keep right */
     if (sp > 1.5f) {   /* the same way: follow at a gap */
         b->trafStillSince = 0;
-        b->trafThr = bestGap < 9 ? (fwdSpeed > 2 ? -0.4f : 0.0f) : bestGap < 16 ? 0.45f : 1.0f;
+        /* (1.8.1: only when catching it up - a leader going as fast as us is no reason to crawl behind it) */
+        if (along > 0.5f && sp >= fwdSpeed - 1.0f && bestGap >= 9) return;
+        b->trafThr = bestGap < 9 ? (fwdSpeed > 2 ? -0.4f : 0.0f) : bestGap < 16 ? 0.7f : 1.0f;
         if (bestGap < 16) b->vehProgressAt = now;
         return;
     }
@@ -2820,12 +2827,14 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
             for (int k = kBest; k + 1 < b->pathLen && dk < 60; k++) {
                 if (k > kBest) dk += dist2d(&b->path[(k - 1) * 3], &b->path[k * 3]);
                 const float *v = &b->path[k * 3], *pin = v, *pout = v; float back = 0, fwd = 0;
-                for (int j = k; j > 0 && back < 8; j--) { back += dist2d(&b->path[(j - 1) * 3], &b->path[j * 3]); pin = &b->path[(j - 1) * 3]; }
-                for (int j = k; j + 1 < b->pathLen && fwd < 8; j++) { fwd += dist2d(&b->path[j * 3], &b->path[(j + 1) * 3]); pout = &b->path[(j + 1) * 3]; }
-                if (back < 2 || fwd < 2) continue;
+                /* 1.8.1: over 12 m either side (was 8): a hand-drawn line wiggles every few metres, and every wiggle read as
+                   a 20-30 degree corner capped the speed at 12-15 m/s all the way; and 7 m/s at a right angle (was 5) */
+                for (int j = k; j > 0 && back < 12; j--) { back += dist2d(&b->path[(j - 1) * 3], &b->path[j * 3]); pin = &b->path[(j - 1) * 3]; }
+                for (int j = k; j + 1 < b->pathLen && fwd < 12; j++) { fwd += dist2d(&b->path[j * 3], &b->path[(j + 1) * 3]); pout = &b->path[(j + 1) * 3]; }
+                if (back < 3 || fwd < 3) continue;
                 float th = fabsf(wrap_pi(heading_to(v, pout) - heading_to(pin, v)));
-                if (th < 0.35f) continue;
-                float vc = 15.0f - 8.0f * (th - 0.35f) / 1.22f; if (vc < 5.0f) vc = 5.0f; if (tracked) vc -= 1.0f;
+                if (th < 0.5f) continue;
+                float vc = 18.0f - 11.0f * (th - 0.5f) / 1.07f; if (vc < 7.0f) vc = 7.0f; if (tracked) vc -= 1.0f;
                 float allow = sqrtf(vc * vc + 2.0f * 3.0f * fmaxf(0, dk - 4.0f));
                 if (allow < b->cornerV) b->cornerV = allow;
             }
@@ -2852,6 +2861,11 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         }
     }
     int gunIt = now < b->gunItUntil;
+    /* 1.8.1: on a route you drew, under 3 m off it, trust the route (ThugBot 0.4.8): the wall feelers and the hazard
+       check no longer brake, hold or re-plan for what their rays think is there - live, drivers on drawn roads braked
+       for fences, kerbs, lamp posts and the road's own banks and crawled. Vehicles in the way are still the traffic
+       check's job, and the stuck escape still backs out of anything real. */
+    int trustRoute = b->pathStrict && offRoute < 3.0f && !b->pastEnd && !b->bypassN;
     /* obstacle avoidance (1.2): three feelers from the front bumper - straight and 26 degrees either side - at 1.2 m;
        an obstacle on the line steers the vehicle to the freer side and slows it down before it hits anything */
     float clearL = 0, clearR = 0;
@@ -2894,7 +2908,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     }
     (void)clearL; (void)clearR;
     /* 1.6.6: hazards the wall feelers cannot see (wheeled vehicles; tanks roll over barrels and kerbs) */
-    if (!tracked && now >= b->hazAt && now >= b->reverseUntil && fwdSpeed > -0.5f && !gunIt) {
+    if (!tracked && now >= b->hazAt && now >= b->reverseUntil && fwdSpeed > -0.5f && !gunIt && !trustRoute) {
         b->hazAt = now + 0.25;
         int quad = name_has(vi.name, "QUAD") || name_has(vi.name, "ATV");
         float bumper = quad ? 1.6f : 3.2f, stepMax = quad ? 0.3f : 0.38f, range = fmaxf(5.0f, fminf(10.0f, speed * 0.9f + 4.0f));
@@ -2937,17 +2951,17 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     float err = wrap_pi(want - vehHeading);
     b->pvPrevHeading = vehHeading; b->pvPrevErr = err;
     float steerCmd = fmaxf(-1, fminf(1, err * 1.8f)) * c->steerSign;
-    float thr = fabsf(err) < 0.5f ? 1.0f : fabsf(err) < 1.2f ? 0.65f : 0.45f;
+    float thr = fabsf(err) < 0.6f ? 1.0f : fabsf(err) < 1.2f ? 0.75f : 0.5f;   /* (1.8.1: 0.6 / 0.75 / 0.5, was 0.5 / 0.65 / 0.45) */
     if (tracked && fabsf(err) > 0.75f && speed < 6) { thr = 0; steerCmd = (err > 0 ? 1.0f : -1.0f) * c->steerSign; }   /* tanks turn on the spot */
     if (b->pathLen >= 2 && !b->pastEnd && !escaping && b->cornerV < 50) {   /* 1.7.3: down to the corner speed in time */
-        if (fwdSpeed > b->cornerV + 1.5f) thr = -0.6f;          /* brake (throttle against the motion) */
-        else if (fwdSpeed > b->cornerV) thr = fminf(thr, 0.0f); /* coast */
-        else if (fwdSpeed > b->cornerV - 2.0f) thr = fminf(thr, 0.5f);
+        if (fwdSpeed > b->cornerV + 3.0f) thr = -0.6f;          /* brake (throttle against the motion) */
+        else if (fwdSpeed > b->cornerV + 1.0f) thr = fminf(thr, 0.0f); /* coast (1.8.1: from 1 m/s over, braking from 3) */
+        else if (fwdSpeed > b->cornerV - 1.0f) thr = fminf(thr, 0.7f);
     }
     if (bend > 1.0f && speed > 9) thr = fminf(thr, 0.0f);          /* hairpin ahead: lift off */
     else if (bend > 0.6f && speed > 12) thr = fminf(thr, 0.45f);
     if (fabsf(err) > 0.9f && fwdSpeed > 10) thr = -0.5f;                 /* too fast for the turn: brake (throttle against the motion) */
-    if (!escaping && !gunIt && b->frontClear < 8) { if (fwdSpeed > 5) thr = -0.6f; else thr = fminf(thr, 0.4f); }   /* something close in front: slow, steer round it */
+    if (!escaping && !gunIt && !(trustRoute && b->frontClear > 2.0f) && b->frontClear < 8) { if (fwdSpeed > 5) thr = -0.6f; else thr = fminf(thr, 0.4f); }   /* something close in front: slow, steer round it */
     if (distFlag < 50) thr = fminf(thr, 0.75f);   /* 1.6.10: 50 m / 0.75 (was 80 m / 0.6: half throttle is a crawl in BC2) */
     /* 1.6.10: run out of route gently - slower in the last 30 m, braking from speed in the last 15 m (the flag zone or
        the end of a route that stops short of it), instead of arriving at 10 m/s and overshooting */

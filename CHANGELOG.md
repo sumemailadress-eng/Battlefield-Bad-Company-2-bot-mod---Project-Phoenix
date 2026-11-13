@@ -28,6 +28,37 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.8.1 - vehicle guns aim right, drivers go faster
+
+- **Guns aimed high.** On a vehicle whose hull axis runs backwards (the drive test finds it), the gun's target height
+  was flipped as well as its direction, so the gun went up for a target below it and down for one above. Height is
+  now always height.
+- **A raised gun is not an offset.** If the gun was left raised (by a human, or a previous gunner) when the turret was
+  tested, that angle was stored as the part's "built-in" tilt and the bot then aimed that much too high, every shot.
+  Only a part modelled pointing straight up or down (60 degrees or more) gets an offset now.
+- **Less hold-over.** Main guns no longer aim over the target for shell drop under 100 m, and above that only half as
+  much (1.8.0 put shots 2-5 m high at 200-300 m). Machine guns get no hold-over at all.
+- **On a route you drew, drivers trust it** (as in ThugBot 0.4.8): within 3 m of it, the wall feelers and the hazard
+  check no longer brake, hold or re-plan for what their rays think is there (fences, kerbs, posts, the road's own
+  banks). Vehicles in the way are still handled by the traffic check, and the stuck escape still backs out of anything
+  real.
+- **Faster through bends.**
+  - Corners are measured over 12 m either side (was 8 m), so the wiggles of a hand-drawn line are no longer corners.
+  - A right angle is taken at 7 m/s (was 5), a gentle bend up to 18 m/s (was 15).
+  - Braking starts 3 m/s over the corner speed (was 1.5).
+  - Less throttle lift while steering.
+- **Following another vehicle:** a driver slows behind it only when it is catching it up.
+- Harness (300 s, 3 seeds each, against 1.8.0):
+
+  | Scenario | km driven | Gun time on target | Vehicles destroyed |
+  |---|---|---|---|
+  | Conquest | 4.2 (was 4.1) | 135 s (was 116 s) | 10.7 (was 9.0) |
+  | Tanks | 3.6 (was 3.1) | 92 s (was 82 s) | 8.0 (was 7.3) |
+  | Saved roads | 4.3 (was 4.0) | 154 s (was 103 s) | 10.7 (was 8.7) |
+
+  ASan clean. The harness vehicles don't have a backwards hull axis or a pre-raised gun, so the two aiming bugs above
+  can only be confirmed in a real game.
+
 ## What changed in 1.8.0 - IFV turrets, the Panama Canal dip, infantry against vehicles, empty driver seats, stray routes
 
 - **IFV turrets aim right.** Each vehicle now keeps its own turret settings: the input that turns it, which way, and
