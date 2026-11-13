@@ -28,6 +28,47 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.7.9 - drivers: forward out of the HQ, forks, traffic, jams, always a job
+
+From a live round on Panama Canal and the vehicle driving in ThugBot 0.4.8 / FloodBots.
+
+- **No backing up at the start.** A vehicle only reverses to turn round when its nose is really at a wall (2.5 m). 1.7.8
+  also backed up whenever something stood 4 m in front and the road lay to the side - a vehicle parked in the HQ with
+  another one in front of it backed out first instead of turning forwards onto the road. Once it backs round it keeps
+  at it until it faces the way (1.7.8 flipped between forward and back for seconds). In the harness it now leaves a
+  boxed-in spawn 3 - 9 s sooner.
+- **Joining the roads ahead.** Route points the vehicle has already passed are dropped, and joining the road network
+  at a point behind the vehicle costs more, so it drives on along the road it is on instead of turning back for a
+  point behind it.
+- **Forks and corners.** With a fork or corner coming up (5 m plus 0.6 s of travel), the driver aims 5 m down the road
+  it turns onto, so it starts the turn in time and takes it on an arc. A branch you drew stopping up to 8 m short of
+  another road (was 4 m) is joined to it, and roads that cross without sharing a point (points of two routes within
+  5 m) are linked, so an X crossing is a junction too.
+- **A vehicle in the way.** Every driver watches the next 35 m of its route for vehicles:
+  - one going the same way: it follows at a gap (slows at 16 m, stops at 9 m);
+  - one coming the other way: both keep right;
+  - one stopped (empty: after 1 s, crewed: after 3 s): it looks for a safe way round - beside it on the right or the
+    left, 1.5 m clear of both hulls, on the drive map, with nothing solid along either side of the hull - drives round
+    it and straight back onto the route 10 m past it ("goes round the stopped ... and back onto its route");
+  - no safe way round: it waits; still blocked after 10 s, that road is closed for a while and counted as jammed, and
+    it takes another road ("can't get past the stopped ... - takes another road").
+- **A vehicle is not a barrier.** A "low obstacle" that turns out to be a vehicle is traffic, not cut from the drive map
+  or closed as a road. Live, a quad saw the Bradley parked beside it in the HQ as a low obstacle, closed the HQ's road
+  out for 4 minutes and the drivers there found no way out. Roads are also never closed within 35 m of where the
+  vehicle started, and a barrier only closes the road when it stands across the route line itself (not a wall beside
+  it).
+- **Jammed roads.** Where drivers get stuck, or can't get past a stopped vehicle, the road counts as jammed: it costs
+  more for the next drivers' routes (the score halves every 4 minutes), so they take a different road while it keeps
+  jamming ("traffic jam at ... drivers prefer another").
+- **Drivers always have something to do.** A driver at a flag its team holds, with nobody attacking it, drives on at
+  once: to the nearest flag the team doesn't hold, or to one under attack, or - every flag held - after 15 s on to
+  the held flag nearest the enemy. Drivers are no longer made guards of held flags. Live, tanks and IFVs parked on
+  their own flags and the crews got out after 25 s ("waiting too long for the next flag"). Driving 25 m now also
+  counts as progress, so a vehicle working its way round near a flag is no longer abandoned after 35 s.
+- Harness (300 s, 3 seeds each): Conquest vehicles drove 4.5 km a round on average (1.7.8: 3.7 km), with no "waiting
+  too long" exits; a jeep parked on the road was passed on the right 7 times in 3 runs, the driver back on its route
+  4 - 11 s after it started round; a jeep in a lane too narrow to pass: the driver took the other road after 10 s (3 of 3). ASan clean.
+
 ## What changed in 1.7.8 - adding maps in the launcher works
 
 - **ADD TO LIST was broken for a single map.** Picking one map and pressing ADD TO LIST wrote its parts into

@@ -237,7 +237,7 @@ int harness_scan(uint32_t value, uint32_t *out, int max)
 /* ---------------- vehicles ---------------- */
 typedef struct MVeh { uint32_t e, d; uint32_t occ[4]; float speed; int heli; float vel[3], pitch, roll, y;
     float tYaw, tPitch, gYaw, gPitch, rotor, wheel, hp, home[3]; uint32_t turObj, gunObj, rotObj; int team; } MVeh;
-static MVeh mveh[8]; static int mvehN;
+static MVeh mveh[8]; static int mvehN; static int g_parkedIdx = -1;   /* 1.7.9: PARKED=x,z - a jeep nobody may board, standing on the road */
 static MVeh *mveh_of(uint32_t e) { for (int i = 0; i < mvehN; i++) if (mveh[i].e == e) return &mveh[i]; return NULL; }
 int eng_entity_matrix(uint32_t e, float m[16]) { uint32_t root = R(e + 0x28); if (!root) return 0; memcpy(m, A + (root - FA0), 64); return 1; }
 int eng_vehicle_seats(uint32_t v) { return inA(v, 4) && R(v) == RB(VA_VEHICLE_VT) && mveh_of(v) ? 4 : 0; }
@@ -253,6 +253,7 @@ int sim_rocket_soldier, sim_vf[3], sim_vh[3], sim_veh_fire, sim_veh_hits, sim_ve
 int eng_enter_vehicle(uint32_t p, uint32_t v, int seat)
 {
     MVeh *m = mveh_of(v); if (!m || seat < 0 || seat >= 4 || m->occ[seat] || !R(p + PL_SOLDIER)) return 0;
+    if (g_parkedIdx >= 0 && m == &mveh[g_parkedIdx]) return 0;
     for (int i = 0; i < mvehN; i++) for (int k = 0; k < 4; k++) if (mveh[i].occ[k] == p) { fprintf(stderr, "MOCK FAIL: enter while already in a vehicle\n"); abort(); }
     m->occ[seat] = p; W(p + PL_CONTROLLED, v); W(p + PL_ENTRY, v + 0x200 + (uint32_t)seat * 0x40); sim_vehicle_enters++;   /* like BC2: a pointer to the entry component */ return 1;
 }
@@ -269,15 +270,21 @@ int eng_exit_vehicle(uint32_t p)
 static void build_vehicles(void)
 {
     mvehN = 0;
-    float at[4][3] = {{-335, 0, 15}, {335, 0, -15}, {-320, 0, -20}, {320, 0, 20}};
+    float at[5][3] = {{-335, 0, 15}, {335, 0, -15}, {-320, 0, -20}, {320, 0, 20}, {0, 0, 0}};
     /* VODNIK and MI24 have no readable name (like most live BC2 vehicles): the spawner names them */
-    const char *nm[4] = {"ID_P_VNAME_HMMWV", "", "ID_P_VNAME_UH60", ""};
-    const char *bp[4] = {getenv("TANKS") ? "Vehicles/US/M1A2/M1A2" : "Vehicles/US/HMMWV/HMMWV", getenv("TANKS") ? "Vehicles/RU/T90/T90" : "Vehicles/RU/Vodnik/Vodnik", "Vehicles/US/UH60/UH60", "Vehicles/RU/Mi24/Mi24"};
-    int tm[4] = {1, 2, 1, 2};
-    for (int i = 0; i < 4; i++) {
+    const char *nm[5] = {"ID_P_VNAME_HMMWV", "", "ID_P_VNAME_UH60", "", "ID_P_VNAME_HMMWV"};
+    const char *bp[5] = {getenv("TANKS") ? "Vehicles/US/M1A2/M1A2" : "Vehicles/US/HMMWV/HMMWV", getenv("TANKS") ? "Vehicles/RU/T90/T90" : "Vehicles/RU/Vodnik/Vodnik", "Vehicles/US/UH60/UH60", "Vehicles/RU/Mi24/Mi24", "Vehicles/US/HMMWV/HMMWV"};
+    int tm[5] = {1, 2, 1, 2, 1}, nv = 4;
+    if (getenv("HQBOX")) {   /* 1.7.9: something parked across the front of the Vodnik at its spawn, HQBOX m ahead of its centre */
+        float ah = atof(getenv("HQBOX")), y0 = terrain(335, -15);
+        add_box(330, y0 - 0.5f, -15 + ah, 340, y0 + 2.0f, -15 + ah + 1.0f); }
+    if (getenv("PARKED")) { sscanf(getenv("PARKED"), "%f,%f", &at[4][0], &at[4][2]); nv = 5; g_parkedIdx = 4;
+        float py = terrain(at[4][0], at[4][2]); add_box(at[4][0] - 2.4f, py - 0.5f, at[4][2] - 1.1f, at[4][0] + 2.4f, py + 1.9f, at[4][2] + 1.1f);
+        if (getenv("PARKWALLS")) { add_box(at[4][0] - 25, py - 0.5f, at[4][2] - 5.5f, at[4][0] + 25, py + 3.0f, at[4][2] - 4.5f); add_box(at[4][0] - 25, py - 0.5f, at[4][2] + 4.5f, at[4][0] + 25, py + 3.0f, at[4][2] + 5.5f); } }   /* (a lane too narrow to pass it) */   /* (its hull: rays and vehicles stop at it) */
+    for (int i = 0; i < nv; i++) {
         uint32_t e = entity_new(0x200, RB(VA_VEHICLE_VT), at[i][0], terrain(at[i][0], at[i][2]), at[i][2]), d = alloc(0x260);
         W(e + VEH_DATA, d); uint32_t str = alloc(32); memcpy(A + (str - FA0), nm[i], strlen(nm[i]) + 1); W(d + VEHD_NAMESID, str);
-        MVeh *v = &mveh[mvehN]; memset(v, 0, sizeof *v); v->e = e; v->d = d; v->heli = i >= 2; v->hp = 100; v->team = tm[i];
+        MVeh *v = &mveh[mvehN]; memset(v, 0, sizeof *v); v->e = e; v->d = d; v->heli = i == 2 || i == 3; v->hp = 100; v->team = tm[i];
         v->home[0] = at[i][0]; v->home[1] = terrain(at[i][0], at[i][2]); v->home[2] = at[i][2];
         if (i == 0) v->tPitch = 0.4f;   /* the HMMWV's gun rests at its highest elevation: +Pitch does not move it */
         /* parts: driver turret (local matrix, two pointers deep), gunner turret (world matrix), rotor / wheel (spinning) */
@@ -416,7 +423,7 @@ static void vehicles_step(float dt)
             float rsign = i == 2 ? 1.0f : -1.0f;   /* the UH60 rolls like the real BC2 helicopters (+Roll lifts the right side); the MI24 the other way */
             v->pitch += (-pin * 1.2f - v->pitch * 0.15f) * dt; v->roll += (rsign * rin * 1.2f - v->roll * 0.15f) * dt;
             if (onGround && coll < 0.2f) { v->pitch *= 0.8f; v->roll *= 0.8f; }
-            if (i == mvehN - 1) yaw = d && d->tick + 2 >= g_mockTick ? d->in[BC2_EiaStrafe] : 0;   /* last helicopter: rudder on A-D */
+            if (i == 3) yaw = d && d->tick + 2 >= g_mockTick ? d->in[BC2_EiaStrafe] : 0;   /* last helicopter: rudder on A-D */
             h -= yaw * 0.9f * dt;
             float cp = cosf(v->pitch), sp = sinf(v->pitch), cr = cosf(v->roll), sr = sinf(v->roll);
             float f[3] = {sinf(h) * cp, sp, cosf(h) * cp}, r[3] = {cosf(h) * cr, sr, -sinf(h) * cr};

@@ -165,6 +165,16 @@ static void gedge(int a, int b, float w)
     }
     g_ga[g_ge] = lo; g_gb[g_ge] = hi; g_gw[g_ge] = w; g_ge++;
 }
+/* 1.7.9: roads that keep jamming (drivers stuck, or waiting behind a stopped vehicle) cost more for a while, so the
+   next drivers take another road: each node keeps a jam score that halves every 4 minutes */
+static float g_jam[RN_GMAX]; static double g_jamAt[RN_GMAX];
+static float jam_now(int i, double now) { if (g_jam[i] <= 0) return 0; float k = (float)((now - g_jamAt[i]) / 240.0); return k > 6 ? 0 : g_jam[i] * powf(0.5f, k); }
+void rn_vehicle_jam(const float *pos, float amount, double now)
+{
+    int n = 0;
+    for (int i = 0; i < g_gn; i++) if (d2(g_gp[i], pos) < 12 && fabsf(g_gp[i][1] - pos[1]) < 6) { g_jam[i] = fminf(jam_now(i, now) + amount, 12.0f); g_jamAt[i] = now; n++; }
+    static int jl; if (n && jl++ < 30) rt_log("routes: traffic jam at (%.0f, %.0f) - that road costs more for a while, drivers prefer another", pos[0], pos[2]);
+}
 static void build_graph(void)
 {
     g_gn = g_ge = 0; for (int i = 0; i < RN_HB; i++) g_hHead[i] = -1; for (int i = 0; i < RN_EH; i++) g_eHash[i] = -1;
@@ -177,7 +187,7 @@ static void build_graph(void)
     int joined = 0;
     for (int i = 0; i < g_vn; i++) for (int e = 0; e < 2; e++) {
         const float *p = e ? g_v[i].pts[g_v[i].n - 1] : g_v[i].pts[0]; int pid = e ? ids[i][g_v[i].n - 1] : ids[i][0];
-        int bj = -1, bk = 0; float bd = 4.0f;
+        int bj = -1, bk = 0; float bd = 8.0f;   /* 1.7.9: 8 m (was 4) - a branch drawn stopping a little short of the road (FloodBots / ThugBot 0.4.8) */
         for (int j = 0; j < g_vn; j++) { if (j == i) continue;
             for (int k = 1; k < g_v[j].n; k++) {
                 const float *a = g_v[j].pts[k - 1], *b = g_v[j].pts[k];
@@ -189,6 +199,20 @@ static void build_graph(void)
         int na = ids[bj][bk - 1], nb = ids[bj][bk];
         if (na != pid && nb != pid) { gedge(pid, na, d2(p, g_v[bj].pts[bk - 1]) + bd); gedge(pid, nb, d2(p, g_v[bj].pts[bk]) + bd); joined++; }
     }
+    /* 1.7.9: roads that cross (or run side by side) without sharing a point: each point is linked to the nearest point of
+       every other route within 5 m, so an X crossing is a junction too, not two roads passing through each other */
+    int crossed = 0;
+#ifdef PHX_HARNESS
+    if (!getenv("RN_NOCROSS"))
+#endif
+    for (int i = 0; i < g_vn; i++) for (int k = 0; k < g_v[i].n; k++) {
+        const float *p = g_v[i].pts[k];
+        for (int j = i + 1; j < g_vn; j++) {
+            int bq = -1; float bd2 = 5.0f;
+            for (int q = 0; q < g_v[j].n; q++) { float d = d2(p, g_v[j].pts[q]); if (d < bd2 && fabsf(p[1] - g_v[j].pts[q][1]) < 3.0f) { bd2 = d; bq = q; } }
+            if (bq >= 0 && ids[i][k] != ids[j][bq]) { int before = g_ge; gedge(ids[i][k], ids[j][bq], bd2 + 2.0f); crossed += g_ge > before; }
+        }
+    }
     /* adjacency (both ways: a road can be driven either way) */
     memset(g_gStart, 0, sizeof(int) * (size_t)(g_gn + 1));
     for (int e = 0; e < g_ge; e++) { g_gStart[g_ga[e] + 1]++; g_gStart[g_gb[e] + 1]++; }
@@ -196,7 +220,8 @@ static void build_graph(void)
     static int fill[RN_GMAX]; memcpy(fill, g_gStart, sizeof(int) * (size_t)g_gn);
     for (int e = 0; e < g_ge; e++) { g_gAdj[fill[g_ga[e]]] = g_gb[e]; g_gAdjW[fill[g_ga[e]]++] = g_gw[e]; g_gAdj[fill[g_gb[e]]] = g_ga[e]; g_gAdjW[fill[g_gb[e]]++] = g_gw[e]; }
     int forks = 0; for (int i = 0; i < g_gn; i++) if (g_gStart[i + 1] - g_gStart[i] >= 3) forks++;
-    if (g_vn) rt_log("routes: vehicle road network - %d route(s) as %d point(s), %d fork(s) and junction(s), %d route end(s) joined to the road they meet", g_vn, g_gn, forks, joined);
+    if (g_vn) rt_log("routes: vehicle road network - %d route(s) as %d point(s), %d fork(s) and junction(s), %d route end(s) joined to the road they meet, %d crossing link(s)", g_vn, g_gn, forks, joined, crossed);
+    memset(g_jam, 0, sizeof g_jam);
 }
 /* 1.7.7: closed stretches - nodes within the radius of a spot where a road was found blocked, for RN_BLOCK_S seconds */
 #define RN_BLOCKS 32
@@ -239,7 +264,8 @@ int rn_path_blocked(const float *pts, int n, int from)
 /* shortest way along the roads: every node within 60 m of the vehicle is a way in (cost: twice the distance to it, as
    the drive there is off the roads); the way out is the node with the least (way so far + 2 x its distance to the flag)
    among those that bring the vehicle at least 30 m nearer */
-static int graph_route(const float *from, const float *goal, float *out, int max, float *joinDist)
+static float wrapf(float a) { while (a > 3.14159265f) a -= 6.2831853f; while (a < -3.14159265f) a += 6.2831853f; return a; }
+static int graph_route(const float *from, float heading, const float *goal, float *out, int max, float *joinDist)
 {
     if (g_gn < 2) return 0;
     g_blkNow = rt_now();
@@ -247,7 +273,16 @@ static int graph_route(const float *from, const float *goal, float *out, int max
     int hn = 0;
     #define HPUSH(v) do { if (hn < RN_GMAX * 4) { int c_ = hn++; heap[c_] = (v); while (c_ && dist[heap[(c_ - 1) / 2]] > dist[heap[c_]]) { int p_ = (c_ - 1) / 2, t_ = heap[p_]; heap[p_] = heap[c_]; heap[c_] = t_; c_ = p_; } } } while (0)
     for (int i = 0; i < g_gn; i++) { dist[i] = 1e30f; prev[i] = -1; src[i] = -1; done[i] = blocked_at(g_gp[i]) ? 1 : 0; }   /* (a closed stretch is never entered) */
-    for (int i = 0; i < g_gn; i++) { float d = d2(g_gp[i], from); if (!done[i] && d < 60 && fabsf(g_gp[i][1] - from[1]) < 10 && !(g_blkN && seg_blocked(from, g_gp[i]))) { dist[i] = d * 2; src[i] = i; HPUSH(i); } }
+    for (int i = 0; i < g_gn; i++) { float d = d2(g_gp[i], from); if (!done[i] && d < 60 && fabsf(g_gp[i][1] - from[1]) < 10 && !(g_blkN && seg_blocked(from, g_gp[i]))) {
+        float c = d * 2;
+        /* 1.7.9: joining the roads behind the vehicle costs more - it turned round (backing up, in a crowded HQ) to reach a
+           point behind it when the same road went on ahead of it */
+        if (heading == heading && d > 4
+#ifdef PHX_HARNESS
+            && !getenv("RN_NOHEAD")
+#endif
+            ) { float ang = fabsf(wrapf(atan2f(g_gp[i][0] - from[0], g_gp[i][2] - from[2]) - heading)); if (ang > 1.75f) c += d + 10; else if (ang > 1.0f) c += d * 0.5f; }
+        dist[i] = c; src[i] = i; HPUSH(i); } }
     if (!hn) return 0;
     float here = d2(from, goal), bestF = 1e30f; int bestT = -1;
     while (hn) {
@@ -257,7 +292,7 @@ static int graph_route(const float *from, const float *goal, float *out, int max
         float dg = d2(g_gp[u], goal);
         if (here - dg >= 30) { float F = dist[u] + dg * 2; if (F < bestF) { bestF = F; bestT = u; } }
         if (dist[u] > bestF) break;   /* (nothing cheaper is left) */
-        for (int a = g_gStart[u]; a < g_gStart[u + 1]; a++) { int v = g_gAdj[a]; float nd = dist[u] + g_gAdjW[a];
+        for (int a = g_gStart[u]; a < g_gStart[u + 1]; a++) { int v = g_gAdj[a]; float nd = dist[u] + g_gAdjW[a] + jam_now(v, g_blkNow) * 12.0f;
             if (!done[v] && nd < dist[v]) { dist[v] = nd; prev[v] = u; src[v] = src[u]; HPUSH(v); } }
     }
     #undef HPUSH
@@ -439,11 +474,28 @@ int rn_pick_foot(const float *from, const float *goal, float *out, int max, floa
     if (n) g_used++;
     return n;
 }
-int rn_pick_vehicle(const float *from, const float *goal, float *out, int max, float *joinDist, int *id)
+int rn_pick_vehicle(const float *from, float heading, const float *goal, float *out, int max, float *joinDist, int *id)
 {
     if (!g_cfg.routes || !g_vn) return 0;
-    int n = graph_route(from, goal, out, max, joinDist);   /* 1.7.3: along the road network, turning at its forks */
-    if (n >= 2) { if (id) *id = -1; g_vUsed++; return n; }
+    int n = graph_route(from, heading, goal, out, max, joinDist);   /* 1.7.3: along the road network, turning at its forks */
+    if (n >= 2) {
+        /* 1.7.9: route points the vehicle is already past (it stands beyond them along the road's first leg) are dropped,
+           so it drives on along the road instead of turning back for them */
+        while (n >= 3
+#ifdef PHX_HARNESS
+               && !getenv("RN_NOTRIM")
+#endif
+               ) {
+            const float *a = &out[0], *b = &out[3];
+            float sx = b[0] - a[0], sz = b[2] - a[2], L2 = sx * sx + sz * sz;
+            if (L2 < 1e-3f) break;
+            float t = ((from[0] - a[0]) * sx + (from[2] - a[2]) * sz) / L2;
+            float qx = a[0] + sx * t, qz = a[2] + sz * t, lat = hypotf(from[0] - qx, from[2] - qz);
+            if (t <= 0.05f || t > 1.0f || lat > 15) break;   /* (alongside its first leg only: past the whole leg it overshot a turn) */
+            memmove(out, out + 3, (size_t)(n - 1) * 12); n--;
+            if (joinDist) *joinDist = lat;
+        }
+        if (id) *id = -1; g_vUsed++; return n; }
     if (g_gn >= 2 && blocks_active()) return 0;   /* 1.7.7: the network has no open way (a road closed): the grid planner goes round instead */
     n = pick(g_v, g_vn, from, goal, 0, 60, 1, out, max, joinDist, id);
     if (n) g_vUsed++;
@@ -458,4 +510,9 @@ void rn_foot_failed(int id)
         g_f[id] = g_f[--g_fn]; g_fDirty = 1; g_saveAt = rt_now() + 10;
     }
 }
+#ifdef PHX_HARNESS
+/* harness: load a key's vehicle routes directly (rntest) */
+int rn_test_load(const char *key) { snprintf(g_key, sizeof g_key, "%s", key); load_vroutes(); build_graph(); return g_vn; }
+int rn_test_nodes(float (**pts)[3]) { *pts = g_gp; return g_gn; }
+#endif
 void rn_status(void) { if (g_key[0]) rt_log("routes: %d foot route(s) (%u made this round, %u joined), %d vehicle route(s) (%u driven)", g_fn, g_built, g_used, g_vn, g_vUsed); }

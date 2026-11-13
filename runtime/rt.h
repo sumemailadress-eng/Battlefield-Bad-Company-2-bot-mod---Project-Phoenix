@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "bc2_observe.h"
 
-#define PHX_VERSION "1.7.8"
+#define PHX_VERSION "1.7.9"
 #define MAX_BOTS 48
 #define MAX_CPS 16
 #define MAX_SPAWNS 64
@@ -192,7 +192,8 @@ const char *navg_key(void);
 #define RN_PTS 256
 void rn_tick(double now);
 int  rn_pick_foot(const float *from, const float *goal, float *out, int max, float *joinDist, int *id);
-int  rn_pick_vehicle(const float *from, const float *goal, float *out, int max, float *joinDist, int *id);
+int  rn_pick_vehicle(const float *from, float heading, const float *goal, float *out, int max, float *joinDist, int *id);   /* heading: the vehicle's (NAN: none) */
+void rn_vehicle_jam(const float *pos, float amount, double now);   /* 1.7.9: a road that keeps jamming costs more for a while */
 void rn_foot_failed(int id);
 /* 1.7.7: a road found blocked (a barrier across it, a vehicle stuck there): its stretch of the road network is closed for
    a while, so drivers take another way; rn_block_serial() changes whenever one is closed */
