@@ -40,6 +40,7 @@ typedef struct Bot {
     float aimErr[2]; double aimErrAt;
     double burstUntil, pauseUntil, reloadUntil, grenadeAt, meleeAt, strafeUntil; float strafe; float fireTime;
     double perceiveAt;
+    double engageSince, engageLast;   /* 1.8.3: one fight across target switches (standing to shoot is capped per fight) */
     float statusPos[3]; int statusPosValid;
     float stepPrev[3]; int stepPrevValid, fastTicks;
     float tryStart[3], tryTime;
@@ -64,7 +65,7 @@ typedef struct Bot {
     uint32_t vehicle; int seat, vehRole; double vehSince, vehCheckAt, vehEnterUntil, vehProgressAt; float vehProgressDist;
     int hState; double hStateAt, fireUntil, shootAt; float hBias, hPrevY, hPrevPitch, hPrevRoll, hPrevHeading, hPrevPos[3], hAlt, hLand[3]; int hHaveLand, hFlag; double hLoiterUntil; float hOrbit;
     float tPush; int tStage, tAct, tCand, gunner, runOut, tBase, tVerOk, tTgtVeh, aimOwned, tLogged; float tBaseYaw, tBasePitch, tPrevRel, viewOffY, viewOffP; uint32_t tVerVeh, tTgtRef; float tVerRel0, tVerExp, tIy, tIp; double tAt, engageUntil, engageCool, hullUntil; float tD1, tPrevPos[3], tSpeed, tTarget[3];
-    int hasAT, hasGL, atOn, atHeli, atGL, atLight; double rocketRegenAt; uint32_t atVeh; double atAt, atUntil, atPrevAt; float atPt[3], atPrev[3], atVel[3];
+    int hasAT, hasGL, atOn, atHeli, atGL, atLight; double rocketRegenAt; uint32_t atVeh, atSkipVeh; double atSince, atSkipUntil; double atAt, atUntil, atPrevAt; float atPt[3], atPrev[3], atVel[3];
     double svAt, rushUntil, supplyAt; float pvPrevHeading, pvPrevErr, pvPrevThr, hNoTurn; double swimAt; uint32_t svRef; float svPrev[3], svVel[3];
     double exitBlockUntil, doorAt, avoidAt, wiggleUntil; int airHoldLogged, crewBoard, revCount, airOn, airLogged; double airAt, airSeenAt, tgtSeenAt; float airPt[3], airPrev[3], airVel[3], tgtPrev[3], tgtVel[3]; float stuckTime, avoidBias, frontClear, revSpot[3];
     uint32_t lastVeh; int exitFails; double vehZoneAt, vehWaitUntil, vehParkAt; float steerSign; int steerCalib; float calibStartHeading, calibStart[3]; double calibAt; double reverseUntil;
@@ -286,6 +287,7 @@ static void ghost_fields(uint32_t q, const char *who)
     rt_log("players: ghost fields %s: team %u +ac %08x +140 %08x +144 %08x +148 %08x +14c %08x flags+bc8 %02x +c28 %02x +cac %02x%02x%02x%02x +c1c %08x/%08x +dc8 %08x ai+d84 %u id+18 %08x%08x id+b0 %08x%08x",
            who, a8, ac, f140, f144, f148, f14c, bc8, c28, cac[0], cac[1], cac[2], cac[3], c1c[0], c1c[1], dc8, d84, id18[1], id18[0], idb0[1], idb0[0]);
 }
+static int life_class(const Bot *b);
 static int create_life(Bot *b, double now)
 {
     uint32_t m = g_world.manager;
@@ -293,7 +295,7 @@ static int create_life(Bot *b, double now)
     if (g_world.obs.count >= g_world.obs.maxPlayers - 1) { rt_log("bot %s: server is full", b->name); return 0; }
     if (!world_kit_for(b->team, b->cls)) return 0;
     /* choose this life's class and input buffer */
-    if (b->lives > 0 && rt_randf() < 0.6f) b->cls = (int)(rt_rand() % CLS_COUNT);
+    if (b->lives > 0 && rt_randf() < 0.6f) b->cls = life_class(b);
     b->inputSlot = (int)(b - g_bots) * 2 + (b->lives & 1);
     uint32_t p = eng_allocate_player(m), vt = 0, id = 0;
     if (!p) { rt_log("bot %s: allocator returned no player", b->name); return 0; }
@@ -513,6 +515,8 @@ enum { OBJ_NONE, OBJ_ATTACK, OBJ_GUARD, OBJ_PATROL, OBJ_DEFEND };
 enum { VR_NONE, VR_DRIVER, VR_PASSENGER, VR_GUNNER };   /* VR_GUNNER: a stationary weapon (1.5) */
 static const char *role_name(int r) { static const char *n[] = {"none", "attack", "guard", "patrol", "defend"}; return r >= 0 && r < 5 ? n[r] : "?"; }
 static double g_directorAt;
+static int g_atFired[2];   /* 1.8.3: rockets / 40 mm fired since the last minute summary */
+static int enemy_armour(int team);
 static uint32_t g_cpEntity[MAX_CPS]; static int g_cpPrevOwner[MAX_CPS]; static double g_cpLostAt[3][MAX_CPS];
 static int g_cpEnemyNear[3][MAX_CPS];   /* [team][flag]: enemies of that team near the flag */
 static float g_cpProg[MAX_CPS]; static double g_cpProgAt[MAX_CPS];   /* capture bar and when it last moved */
@@ -563,6 +567,12 @@ static void director_update(double now)
     }
     if (now < g_directorAt || !nf) return;
     g_directorAt = now + 1.0;
+    /* 1.8.3: anti-vehicle fire per minute (the per-shot lines stop after 16) */
+    { static double sumAt; if (!sumAt) sumAt = now + 60;
+      if (now >= sumAt) { sumAt = now + 60;
+          if (g_atFired[0] || g_atFired[1]) rt_log("combat: last minute %d rocket(s) and %d 40 mm grenade(s) fired at enemy vehicles; crewed enemy armour: team 1 faces %d, team 2 faces %d",
+                                                   g_atFired[0], g_atFired[1], enemy_armour(1), enemy_armour(2));
+          g_atFired[0] = g_atFired[1] = 0; } }
     memset(g_cpEnemyNear, 0, sizeof g_cpEnemyNear);
     for (int i = 0; i < g_world.obs.count; i++) {
         BC2ObservedPlayer *p = &g_world.obs.players[i];
@@ -764,7 +774,7 @@ static int overwatch_pick(Bot *b, int f, int kind, double now)
         if (sc > bs) { bs = sc; best = k; }
     }
     if (best < 0) return 0;
-    memcpy(b->owSpot, &g_ow[kind][f][best * 3], 12); b->owOn = 1; b->owUntil = now + randr(70, 110); b->owCounted = 0;
+    memcpy(b->owSpot, &g_ow[kind][f][best * 3], 12); b->owOn = 1; b->owUntil = now + randr(40, 60);   /* 1.8.3: 70-110 s kept recon off the flags */ b->owCounted = 0;
     return 1;
 }
 
@@ -1224,9 +1234,14 @@ static int veh_tracked(const char *n)
     for (unsigned j = 0; j < sizeof k / sizeof *k; j++) if (strstr(u, k[j])) return 1;
     return 0;
 }
+static int veh_aa(const char *n)
+{
+    char u[64]; int i = 0; for (; n[i] && i < 63; i++) u[i] = (char)toupper((unsigned char)n[i]); u[i] = 0;
+    return strstr(u, "VADS") || strstr(u, "TUNGUSKA") || strstr(u, "2S6");
+}
 static int veh_armoured(const char *n)
 {
-    static const char *k[] = {"M1A2", "ABRAMS", "T90", "T-90", "BMD", "BRADLEY", "M3A3", "BMP", "M48", "T54", "T-54", "TANK", "APC", "IFV", "CAV", "BTR", "M113", "CV90"};
+    static const char *k[] = {"M1A2", "ABRAMS", "T90", "T-90", "BMD", "BRADLEY", "M3A3", "BMP", "M48", "T54", "T-54", "TANK", "APC", "IFV", "BTR", "M113", "CV90"};
     char u[64]; int i = 0; for (; n[i] && i < 63; i++) u[i] = (char)toupper((unsigned char)n[i]); u[i] = 0;
     for (unsigned j = 0; j < sizeof k / sizeof *k; j++) if (strstr(u, k[j])) return 1;
     return 0;
@@ -1288,6 +1303,30 @@ static int crew_spawn(Bot *b, const int *cand, int n, const float *to)
     return bestK;
 }
 static int player_team(uint32_t p) { for (int i = 0; i < g_world.obs.count; i++) if (g_world.obs.players[i].pointer == p) return (int)g_world.obs.players[i].team; return 0; }
+static int veh_armoured(const char *n);
+/* 1.8.3: crewed enemy tanks and IFVs make engineers (launchers) much more likely - live 1.8.2, a human in a T-90 met
+   25 engineers in 137 deployments and was hardly ever rocketed */
+static int enemy_armour(int team)
+{
+    int n = 0;
+    for (int i = 0; i < g_world.vehCount; i++) {
+        const VehicleInfo *v = &g_world.veh[i];
+        if (v->kind == VK_HELI || !veh_armoured(v->name)) continue;
+        for (int s2 = 0; s2 < v->seats; s2++) { uint32_t o = eng_vehicle_occupant(v->entity, s2); int tm = o ? player_team(o) : 0; if (tm > 0 && tm != team) { n++; break; } }
+    }
+    return n;
+}
+static int life_class(const Bot *b)
+{
+    int armour = enemy_armour(b->team);
+    if (armour > 0) {
+        int eng = 0, all = 0;
+        for (int i = 0; i < MAX_BOTS; i++) if (g_bots[i].used && g_bots[i].team == b->team && &g_bots[i] != b) { all++; eng += g_bots[i].cls == CLS_ENGINEER; }
+        float want = fminf(0.55f, 0.3f + 0.1f * armour);
+        if (eng < all * want && rt_randf() < 0.7f) return CLS_ENGINEER;
+    }
+    return (int)(rt_rand() % CLS_COUNT);
+}
 static Bot *bot_of_player(uint32_t p) { for (int i = 0; i < MAX_BOTS; i++) if (g_bots[i].used && g_bots[i].player == p) return &g_bots[i]; return NULL; }
 
 /* on foot: decide whether to board something; sets b->vehicle/seat/vehRole (boarding) */
@@ -1597,6 +1636,10 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
     TurretCal *t = turcal_for(vi->data, seat, 1);
     if (!t) return NULL;
     if (t->state) { if (b->tStage) turret_release(b); return t->state > 0 ? t : NULL; }
+    /* 1.8.3: a light vehicle's driver has no gun (live: 'Cav' counted as armour - its driver ran the turret test again
+       and again, sitting still in the seat each time, and blocked every other vehicle's test meanwhile) */
+    if (seat == 0 && vi->kind != VK_HELI && !veh_armoured(vi->name) && !veh_aa(vi->name)) {
+        t->state = -1; rt_log("vehicles: '%s' seat 0 - light vehicle, the driver just drives (no turret test)", vi->name[0] ? vi->name : "?"); return NULL; }
     if (now < t->retryAt) return NULL;   /* 1.8.0: a failed test is tried again later (on another vehicle, after a pause) */
     int me = (int)(b - g_bots);
     if (g_turOwner >= 0 && g_turOwner != me && now - g_turOwnerAt < 40 && g_bots[g_turOwner].used && g_bots[g_turOwner].vehicle) return NULL;   /* someone else is testing */
@@ -3091,6 +3134,7 @@ static int at_target(Bot *b, double now, const float *eye, float *aim)
         if (v->kind != VK_GROUND && v->kind != VK_HELI && v->kind != VK_UNKNOWN && v->kind != VK_BOAT && v->kind != VK_EMPLACE) continue;
         uint32_t occ = 0; for (int s2 = 0; s2 < v->seats && !occ; s2++) occ = eng_vehicle_occupant(v->entity, s2);
         if (!occ) continue;
+        if (v->entity == b->atSkipVeh && now < b->atSkipUntil) continue;
         int tm = player_team(occ); if (tm < 1 || tm == b->team) continue;
         VehicleInfo nv; if (!world_vehicle_read(v->entity, &nv)) continue;
         nv.kind = v->kind;
@@ -3099,9 +3143,9 @@ static int at_target(Bot *b, double now, const float *eye, float *aim)
            70 m - 1.7.9 rifles fired only at helicopters, so a jeep crew drove through a squad untouched; launchers on
            every kind of vehicle (armour first by being the bigger threat at the same range) */
         int light = nv.kind != VK_HELI && !veh_armoured(v->name);
-        float maxd = b->hasAT && b->rockets > 0 ? (nv.kind == VK_HELI ? 130 : 150) : b->hasGL && nv.kind != VK_HELI ? 90 : (nv.kind == VK_HELI ? 110 : light ? 70 : 0);
+        float maxd = b->hasAT && b->rockets > 0 ? (nv.kind == VK_HELI ? 130 : light ? 150 : 190) : b->hasGL && nv.kind != VK_HELI ? 90 : (nv.kind == VK_HELI ? 110 : light ? 70 : 0);
         if (b->hasAT && b->rockets > 0 && light) d *= 1.15f;   /* (rockets: armour before a jeep at the same range) */
-        if (d > maxd || d < 8) continue;
+        if (d > maxd || d < (light ? 8 : 5)) continue;
         float c[3] = {nv.pos[0], nv.pos[1] + 1.2f, nv.pos[2]};
         if (!los_clear(eye, c, 5.0f)) continue;
         if (v->entity == b->atVeh) d *= 0.7f;   /* keep the one we are on */
@@ -3153,6 +3197,7 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
         tgt = NULL; b->target = 0;
     }
     int engaging = tgt && (b->visible || now - b->lastVisible < 1.2);
+    if (engaging) { if (!b->engageSince || now - b->engageLast > 4) b->engageSince = now; b->engageLast = now; }
     float tdist = tgt ? dist3(tgt->position, self->position) : 0;
 
     /* where to walk: revive a teammate close by > the objective */
@@ -3271,11 +3316,20 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
        recon at any range it engages; then it pushes on to the flag, firing as it goes. */
     if (engaging) {
         int inPath = b->haveGoal && threat_in_path(b->pos, b->goal, tgt->position);
-        double fightFor = now - b->targetSince;
-        if (b->cls == CLS_RECON && fightFor < 12) moving = 0;
-        else if ((tdist < 25 || inPath) && fightFor < 10) moving = 0;
-        else if (b->visible && tdist < 70 && fightFor < 5) moving = 0;
+        double fightFor = now - b->targetSince, fight = now - b->engageSince;
+        /* 1.8.3: the stand is per fight, not per target - 1.8.2 bots switched between enemies and each new one started
+           the clock again, so they stood in one spot shooting for minutes instead of taking the flag. An attacker still on
+           its way stands less (and never for far targets); after the fight's budget it fires on the move. */
+        int attacker = b->aRole == OBJ_ATTACK && !inZone;
+        float budget = attacker ? 9.0f : 16.0f;
+        if (fight > budget) { /* fire on the move */ }
+        else if (b->cls == CLS_RECON && fightFor < (attacker ? 6 : 12)) moving = 0;
+        else if ((tdist < 25 || inPath) && fightFor < (attacker ? 6 : 10)) moving = 0;
+        else if (b->visible && tdist < (attacker ? 45 : 70) && fightFor < (attacker ? 3 : 5)) moving = 0;
     }
+#ifdef PHX_HARNESS
+    { extern double g_hEng[2]; if (engaging && !b->holding && !holdHere) g_hEng[moving ? 1 : 0] += dt; }
+#endif
     if (b->knifeLeft > 0) moving = 0;
     /* an enemy within 7 m while we reload, or one facing away: go in with the knife */
     if (engaging && tdist < 7.0f && tdist > 2.2f && b->visible && b->eqState == EQ_IDLE &&
@@ -3438,9 +3492,18 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
     if (now >= b->atUntil - 0.01 || !b->atOn) {
         float eyeA[3] = {self->position[0], self->position[1] + 1.55f, self->position[2]}, ap[3];
         int launcher = (b->hasAT && b->rockets > 0) || b->hasGL;
-        int want = g_cfg.equipment && (launcher ? (!engaging || tdist > 25) : !engaging);
+        /* 1.8.3: a launcher goes onto a vehicle unless an enemy soldier is right on top of us (1.8.2: 25 m - an engineer
+           in a firefight let the tank roll through) */
+        int want = g_cfg.equipment && (launcher ? (!engaging || tdist > 12) : !engaging);
+        uint32_t prevVeh = b->atVeh;
         b->atOn = want && at_target(b, now, eyeA, ap) && ((b->hasAT && b->rockets > 0) || b->atGL || b->atHeli || b->atLight);
-        if (b->atOn) memcpy(b->atPt, ap, 12);
+        if (b->atOn) {
+            memcpy(b->atPt, ap, 12);
+            if (b->atVeh != prevVeh || !b->atSince) b->atSince = now;
+            /* 1.8.3: no standing duel with one vehicle: after 25 s (armour 40 s) it is left alone for a while and the bot
+               moves on (live: an assault soldier fired 40 mm at the same vehicle 8 m away for a minute) */
+            if (now - b->atSince > (b->atLight ? 25 : 40)) { b->atSkipVeh = b->atVeh; b->atSkipUntil = now + (b->atLight ? 30 : 15); b->atSince = 0; b->atOn = 0; }
+        } else b->atSince = 0;
         b->atUntil = now + 0.5;
     }
     if (b->atOn && b->knifeLeft <= 0) {
@@ -3527,7 +3590,8 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
     if (b->atOn) {
         b->levels[BC2_EiaSprint] = 0;
         if ((b->hasAT && b->rockets > 0) || b->atGL) {
-            if (!moving || dist2d(b->pos, b->atPt) < 90) { b->levels[BC2_EiaThrottle] = 0; b->levels[BC2_EiaStrafe] = 0; }   /* stand to shoot */
+            /* stand to shoot - 1.8.3: only for the shot itself (launcher ready); while it reloads the bot keeps going */
+            if (!moving || (dist2d(b->pos, b->atPt) < 90 && now > b->glAt - 0.8)) { b->levels[BC2_EiaThrottle] = 0; b->levels[BC2_EiaStrafe] = 0; }
             float atTol = fminf(0.04f, 0.008f + 1.5f / fmaxf(20.0f, dist3(b->pos, b->atPt)));
             if (!eqBusy && yawErr < atTol && fabsf(wantPitch - b->pitch) < atTol * 1.5f && now > b->glAt) {
                 if (eq_start(b, now, BC2_EiaGrenadeLauncher, b->atGL ? 0.15 : 0.25, 0, 0, b->atGL ? BC2_EiaGrenadeLauncher : BC2_EiaSwitchPrimaryWeapon)) {
@@ -3535,6 +3599,7 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
 #ifdef PHX_HARNESS
                     { extern int g_hAT[4]; g_hAT[b->atGL ? 1 : 0]++; }
 #endif
+                    g_atFired[b->atGL ? 1 : 0]++;
                     static int atLogs; if (atLogs++ < 16) rt_log("combat: %s fires %s at an enemy %s %.0f m away%s", b->name, b->atGL ? "a 40 mm grenade" : "a rocket", b->atHeli ? "helicopter" : "vehicle",
                                                                  dist3(b->pos, b->atPt), !b->atGL && b->rockets == 0 ? " (last rocket)" : "");
                 }
@@ -3841,7 +3906,7 @@ void bots_tick(double now, float dt)
             if (self && self->controllable) { b->nextAt = now + 0.5; break; }   /* soldier still attached (in a vehicle?) */
             if (b->newLife) {   /* a kept player: this life's class and weapons, as a new player would get */
                 b->newLife = 0;
-                if (rt_randf() < 0.6f) b->cls = (int)(rt_rand() % CLS_COUNT);
+                if (rt_randf() < 0.6f) b->cls = life_class(b);
                 if (!apply_kit(b)) { remove_player(b, "new kit refused"); b->state = BS_WAIT; b->nextAt = now + 3; break; }
                 b->lives++;
             }
@@ -3974,12 +4039,13 @@ void bots_stop_all(void)
 }
 
 #ifdef PHX_HARNESS
-double g_hStartT, g_hStartRev; int g_hAT[4];
+double g_hStartT, g_hStartRev; int g_hAT[4]; double g_hEng[2];
 #endif
 void bots_status(void)
 {
 #ifdef PHX_HARNESS
     rt_log("HSTAT first 12 s of driving: %.1f s, reversing %.1f s (%.0f%%); anti-vehicle: %d rockets, %d 40 mm, %d rifle bursts at helicopters, %d at light vehicles", g_hStartT, g_hStartRev, g_hStartT > 0 ? 100 * g_hStartRev / g_hStartT : 0, g_hAT[0], g_hAT[1], g_hAT[2], g_hAT[3]);
+    { extern double g_hEng[2]; rt_log("HSTAT fighting off the flag: standing %.0f s, moving %.0f s", g_hEng[0], g_hEng[1]); }
 #endif
     int st[5][4] = {{0}};
     for (int i = 0; i < MAX_BOTS; i++) if (g_bots[i].used && g_bots[i].team >= 1 && g_bots[i].team <= 4) st[g_bots[i].team][g_bots[i].state]++;

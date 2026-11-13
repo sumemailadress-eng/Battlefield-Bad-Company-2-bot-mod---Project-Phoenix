@@ -28,6 +28,36 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.8.3 - rockets on tanks, buggy drivers drive, infantry push to the flags
+
+- **A bot sat still in the driver's seat of a buggy.** The 'Cav' was counted as armour, so its driver kept running the
+  turret test ("no input turned a turret - tried again later") and stood still for each try. While it tested, no
+  other vehicle could test its own turret.
+  - 'Cav' is no longer on the armour list.
+  - The driver of any light vehicle (quad, jeep, buggy) skips the turret test and just drives. AA vehicles (VADS,
+    Tunguska) still test.
+- **Rockets on tanks, including yours.**
+  - When the enemy has crewed tanks or IFVs, more bots spawn as engineers: up to 30-55% of the team, depending on
+    how many tanks there are.
+  - An engineer in a firefight now turns its launcher on a vehicle unless an enemy soldier is within 12 m (was 25 m).
+  - Rockets reach tanks out to 190 m (was 150 m) and can be fired at a tank as close as 5 m.
+  - A bot stops only for the shot itself, and moves on while it reloads.
+  - After 40 s on one tank (25 s on a light vehicle) the bot leaves it alone for a while. 1.8.2 had an assault
+    soldier firing 40 mm at the same vehicle 8 m away for a minute.
+  - The log now gives a per-minute count of rockets and 40 mm fired at vehicles. The per-shot lines stopped after
+    16, so the rest of a round was invisible.
+- **Bots stood in one spot shooting instead of taking the flag.** The time a bot stands to shoot was counted per
+  target, so every new enemy started the clock again.
+  - It now counts per fight.
+  - A bot on its way to attack a flag stands for less time and never for far-away enemies. After 9 s it fires on
+    the move.
+  - Recon overwatch on high ground lasts 40-60 s (was 70-110 s).
+- Harness (Conquest, 300 s, against 1.8.2):
+  - Fighting away from a flag: standing 31% of the time (was 69%), 6 seeds.
+  - Flags captured: 39 (was 33), 6 seeds.
+  - Tank games (3 seeds): rockets that hit vehicles 25 (was 11).
+  - ASan clean.
+
 ## What changed in 1.8.2 - from this morning's Panama Canal log (1.8.0)
 
 - **IFV guns pointed 30-60 degrees off.** The log showed the BMD-3 and Bradley turrets "turned 149 / 160 / -123

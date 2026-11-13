@@ -10,7 +10,7 @@
 # map list format (a mode line, then "Levels/<map> <rounds>").
 param([string]$Portable = '')
 $ErrorActionPreference = 'Continue'
-$Version = '1.8.2'
+$Version = '1.8.3'
 
 # ---------------------------------------------------------------- launcher settings
 $setPath = Join-Path $PSScriptRoot 'Phoenix-Launcher.ini'
