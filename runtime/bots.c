@@ -1514,7 +1514,7 @@ typedef struct TurretCal { uint32_t data, calVeh; int seat, state, yawAct, pitch
     /* 1.8.0: everything else per vehicle too - a re-test on a second IFV (another transform, another input, another
        offset) overwrote the first one's settings, and the first one then aimed with the wrong input or 180 degrees off */
     int entYawAct[8], entPitchAct[8]; float entYawSign[8], entYawOff[8], entPitchSign[8], entPitchOff[8];
-    float trustedOff; int haveTrusted, fails; double retryAt; TurPath trustedPath; } TurretCal;
+    float trustedOff; int haveTrusted, fails, guessTries; double retryAt; TurPath trustedPath; } TurretCal;
 static TurretCal g_turCal[96]; static int g_turCalN; static int g_turOwner = -1; static double g_turOwnerAt;
 static TurretCal *turcal_for(uint32_t data, int seat, int create)
 {
@@ -1616,8 +1616,14 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
         if (r == 0) { b->tStage = 1; return NULL; }
         t->havePitch = 0; t->pitchOff = 0;   /* (a re-test starts clean: 1.7.9 kept the last test's elevation part) */
         if (!b->tLogged++) rt_log("vehicles: '%s' seat %d - %d candidate transform(s), testing the turret inputs", vi->name, seat, r);
-        b->tStage = 2; b->tAct = 0; b->tAt = now; tur_baseline(vi->entity, vi); return NULL; }
+        /* 1.8.2: first look straight ahead along the hull and give a turret that follows the aim 1.5 s to come round:
+           live, IFV turrets were found "turned 149 / 160 / -123 degrees when tested" (left where the gunner had been
+           looking), and the forward offset guessed from that put their guns 30-60 degrees off the target */
+        { const DriveCalib *dc = calib_for(vi->data, 0); float fh = vi->heading + (dc && dc->fwdSign < 0 ? PI : 0);
+          b->yaw = yaw_from_heading(fh); b->pitch = 0; }
+        b->tStage = 2; b->tAct = 0; b->tAt = now + 1.3; tur_baseline(vi->entity, vi); return NULL; }
     case 2:   /* settle (the last input still lands for a frame or two), then drop anything that moves by itself */
+        if (tt < 0) return NULL;
         if (tt < 0.2) { b->tBase = 0; return NULL; }
         if (!b->tBase) { b->tBase = 1; tur_baseline(vi->entity, vi); return NULL; }
         if (tt < 0.6) return NULL;
@@ -1657,7 +1663,14 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
               /* 1.8.0: a turret someone already turned (a second IFV, a vehicle a human used) does not stand at a quarter
                  turn: its offset is not where it points now - the one found on a vehicle tested fresh is kept */
               int same = t->haveTrusted && t->trustedPath.depth == pp->depth && !memcmp(t->trustedPath.off, pp->off, sizeof pp->off[0] * (pp->depth + 1));
-              if (r0 > 90 || fabsf(r0 - q) < 0.2f) { t->yawOff = q; if (!t->haveTrusted) { t->trustedOff = q; t->trustedPath = *pp; t->haveTrusted = 1; } }
+              if (r0 > 90 || fabsf(r0 - q) < 0.2f) { t->yawOff = q;
+                  if (!t->haveTrusted) { t->trustedOff = q; t->trustedPath = *pp; t->haveTrusted = 1;
+                      /* 1.8.2: vehicles of the type whose offset had to be guessed on the same part get this one */
+                      for (int k = 0; k < t->entN; k++) if (t->entYaw[k].depth == pp->depth && !memcmp(t->entYaw[k].off, pp->off, sizeof pp->off[0] * (pp->depth + 1))) t->entYawOff[k] = q; } }
+              else if (!same && t->guessTries < 2) {
+                  t->guessTries++; tur_apply(b, yl[b->tAct], 0); t->state = 0; t->retryAt = now + 20; turret_release(b);
+                  rt_log("vehicles: '%s' seat %d - turret was turned %.0f degrees when tested - testing again in 20 s", vi->name, seat, r0 * 57.2958f);
+                  return NULL; }
               else { t->yawOff = same ? t->trustedOff : q; rt_log("vehicles: '%s' seat %d - turret was turned %.0f degrees when tested - %s", vi->name, seat, r0 * 57.2958f, same ? "using the offset found before" : "offset guessed"); }
               if (fabsf(t->yawOff) > 0.01f) rt_log("vehicles: '%s' seat %d - turret part is turned %.0f degrees from the gun - corrected", vi->name, seat, t->yawOff * 57.2958f); }
             rt_log("vehicles: '%s' seat %d - turret turns with %s (%+.0f), transform depth %d at +0x%x", vi->name, seat, t->yawAct == TUR_VIEW_YAW ? "the aim (view)" : t->yawAct == BC2_EiaCameraYaw ? "CameraYaw" : t->yawAct == BC2_EiaYaw ? "Yaw" : "Roll", t->yawSign, pp->depth, pp->off[pp->depth]);
@@ -2283,7 +2296,7 @@ static void veh_traffic(Bot *b, const VehicleInfo *vi, float vehHeading, float f
     /* stopped (or parked): wait a moment, then go round */
     if (!b->trafStillSince) b->trafStillSince = now;
     if (!b->trafWaitSince) b->trafWaitSince = now;
-    int crewed = eng_vehicle_occupant(bl.entity, 0) != 0;
+    uint32_t crewP = eng_vehicle_occupant(bl.entity, 0); int crewed = crewP != 0;
     b->trafThr = bestGap < 7 ? (fwdSpeed > 2 ? -0.4f : 0.0f) : bestGap < 14 ? 0.45f : 1.0f;
     b->vehProgressAt = now;
     if (now - b->trafStillSince >= (crewed ? 3.0 : 1.0) && now >= b->bypassTryAt && bestGap < 25) {
@@ -2298,10 +2311,9 @@ static void veh_traffic(Bot *b, const VehicleInfo *vi, float vehHeading, float f
     }
     if (now - b->trafWaitSince > 10) {   /* no way round: that stretch is jammed - another road */
         b->trafWaitSince = now;
-        rn_vehicle_jam(bl.pos, 4, now);
-        rn_vehicle_block(bl.pos, 6, now);
-        /* the drive map round it too (not in the HQ the driver started from - vehicles stand parked there) */
-        if (dist2d(bl.pos, b->vStart) > 35) navg_vehicle_block(bl.pos, 3.0f);
+        /* 1.8.2: a jam, not a closure - live, a quad stopped for a second at a flag closed the main road for 4 minutes
+           and every driver on it re-routed; a vehicle moves on, a closed road stays closed */
+        rn_vehicle_jam(bl.pos, crewed ? 1.5f : 3.0f, now);
         /* a second time at the same one: stop waiting for it - backing out and the escape take over */
         if (b->trafIgnore == bl.entity) { if (++b->trafFails >= 2) { b->trafIgnoreUntil = now + 20; b->trafFails = 0; } } else { b->trafIgnore = bl.entity; b->trafFails = 1; }
         b->pathStrict = 0; b->pathAt = 0; memcpy(b->pathFrom, vi->pos, 12);
@@ -2854,7 +2866,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
                the vehicle's origin) */
             int k0 = b->pathIdx > 0 ? b->pathIdx : 1; float ref = b->path[(k0 - 1) * 3 + 1], lo = ref, hi = ref, along = 0; const float *pv = vi.pos;
             for (int k = k0; k < b->pathLen && along < 40; k++) { along += dist2d(pv, &b->path[k * 3]); pv = &b->path[k * 3]; lo = fminf(lo, pv[1]); hi = fmaxf(hi, pv[1]); }
-            if (hi - ref > 2.5f || ref - lo > 2.5f || fabsf(vi.fwd[1]) > 0.16f) {
+            if (hi - ref > 2.5f || ref - lo > 2.5f || (fabsf(vi.fwd[1]) > 0.2f && hi - lo > 1.5f)) {   /* (1.8.2: pitch only with 1.5 m of height change - live it fired on gentle slopes, "0.0 m down, 0.0 m up") */
                 if (now > b->gunItUntil && now > b->gunLogAt) { b->gunLogAt = now + 30; static int gl; if (gl++ < 30 || g_cfg.verbose) rt_log("vehicles: %s guns '%s' through the dip / climb on its route (%.1f m down, %.1f m up in 40 m)", b->name, vi.name, ref - lo, hi - ref); }
                 b->gunItUntil = now + 2.0;
             }

@@ -28,6 +28,27 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.8.2 - from this morning's Panama Canal log (1.8.0)
+
+- **IFV guns pointed 30-60 degrees off.** The log showed the BMD-3 and Bradley turrets "turned 149 / 160 / -123
+  degrees when tested": left where the gunner had been looking. The "forward" offset was then guessed from that, by
+  rounding to a quarter turn.
+  - The turret test now first looks straight ahead along the hull and waits 1.5 s, so a turret that follows the aim
+    comes round to the front.
+  - A turret still found turned is tested again 20 s later (twice) instead of guessed.
+  - Once a vehicle of the type is tested with its turret straight, every vehicle that had a guessed offset on the
+    same part gets the right one.
+- **A stopped vehicle no longer closes a road.** A quad stopping for a moment at a flag closed the main road for
+  4 minutes, and every driver on it re-routed ("road ahead is closed - takes another road", over and over). A vehicle
+  that can't be passed now only makes that road cost more for a while.
+- **"Gun it" only for real dips and climbs.** It also fired on gentle slopes ("0.0 m down, 0.0 m up"), at full
+  throttle into bends. The vehicle's own pitch now counts only where the route also changes height by 1.5 m.
+- Harness (Conquest, 300 s, 4 seeds, against 1.8.1):
+  - 4.9 km driven a round (was 4.3).
+  - Guns on target 140 s (was 135 s).
+  - 11.8 vehicles destroyed (was 9.3).
+  - ASan clean.
+
 ## What changed in 1.8.1 - vehicle guns aim right, drivers go faster
 
 - **Guns aimed high.** On a vehicle whose hull axis runs backwards (the drive test finds it), the gun's target height
