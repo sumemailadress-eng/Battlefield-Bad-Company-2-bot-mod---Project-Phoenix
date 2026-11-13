@@ -107,8 +107,10 @@ static void load_vroutes(void)
                 for (int st = 0; st + 1 < k; st += RN_PTS - 1) add_vroute((const float (*)[3])&pts[st], k - st < RN_PTS ? k - st : RN_PTS, "3d map");
             }
             fclose(f); } }
-    /* the lines drawn in LearnViewer (1.6.x): "route" then "x z" or "x y z" per line, "end" */
-    if (file_path(".routes", p, sizeof p)) { FILE *f = fopen(p, "r");
+    /* the lines drawn in LearnViewer (1.6.x): "route" then "x z" or "x y z" per line, "end".
+       1.8.0: only for a map with no routes drawn in the 3D map - live on Panama Canal a driver took an old LearnViewer
+       line ("a route we never created") next to the routes drawn in the 3D map, where the 3D map does not show it */
+    if (!g_vn && file_path(".routes", p, sizeof p)) { FILE *f = fopen(p, "r");
         if (f) { char line[256]; int k = 0, in = 0;
             while (fgets(line, sizeof line, f)) {
                 if (!strncmp(line, "route", 5)) { if (in && k >= 2) add_vroute((const float (*)[3])pts, k, "learnviewer"); in = 1; k = 0; continue; }
@@ -199,18 +201,26 @@ static void build_graph(void)
         int na = ids[bj][bk - 1], nb = ids[bj][bk];
         if (na != pid && nb != pid) { gedge(pid, na, d2(p, g_v[bj].pts[bk - 1]) + bd); gedge(pid, nb, d2(p, g_v[bj].pts[bk]) + bd); joined++; }
     }
-    /* 1.7.9: roads that cross (or run side by side) without sharing a point: each point is linked to the nearest point of
-       every other route within 5 m, so an X crossing is a junction too, not two roads passing through each other */
+    /* 1.7.9: roads that cross without sharing a point are a junction too. 1.8.0: only where two drawn lines really cross
+       (their segments intersect, at the same height): 1.7.9 linked any points of two routes within 5 m, which also tied
+       roads running side by side together - drivers hopped from one to the other along a way nobody drew */
     int crossed = 0;
 #ifdef PHX_HARNESS
     if (!getenv("RN_NOCROSS"))
 #endif
-    for (int i = 0; i < g_vn; i++) for (int k = 0; k < g_v[i].n; k++) {
-        const float *p = g_v[i].pts[k];
-        for (int j = i + 1; j < g_vn; j++) {
-            int bq = -1; float bd2 = 5.0f;
-            for (int q = 0; q < g_v[j].n; q++) { float d = d2(p, g_v[j].pts[q]); if (d < bd2 && fabsf(p[1] - g_v[j].pts[q][1]) < 3.0f) { bd2 = d; bq = q; } }
-            if (bq >= 0 && ids[i][k] != ids[j][bq]) { int before = g_ge; gedge(ids[i][k], ids[j][bq], bd2 + 2.0f); crossed += g_ge > before; }
+    for (int i = 0; i < g_vn; i++) for (int k = 0; k + 1 < g_v[i].n; k++) {
+        const float *a0 = g_v[i].pts[k], *a1 = g_v[i].pts[k + 1];
+        for (int j = i + 1; j < g_vn; j++) for (int q = 0; q + 1 < g_v[j].n; q++) {
+            const float *b0 = g_v[j].pts[q], *b1 = g_v[j].pts[q + 1];
+            float rx = a1[0] - a0[0], rz = a1[2] - a0[2], sx = b1[0] - b0[0], sz = b1[2] - b0[2], den = rx * sz - rz * sx;
+            if (fabsf(den) < 1e-4f) continue;
+            float qx = b0[0] - a0[0], qz = b0[2] - a0[2], t = (qx * sz - qz * sx) / den, u = (qx * rz - qz * rx) / den;
+            if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+            float ya = a0[1] + (a1[1] - a0[1]) * t, yb = b0[1] + (b1[1] - b0[1]) * u;
+            if (fabsf(ya - yb) > 3.0f) continue;   /* a bridge over a road */
+            int ia = t < 0.5f ? k : k + 1, ib = u < 0.5f ? q : q + 1;
+            if (ids[i][ia] == ids[j][ib]) continue;
+            int before = g_ge; gedge(ids[i][ia], ids[j][ib], d2(g_v[i].pts[ia], g_v[j].pts[ib]) + 2.0f); crossed += g_ge > before;
         }
     }
     /* adjacency (both ways: a road can be driven either way) */
@@ -494,6 +504,15 @@ int rn_pick_vehicle(const float *from, float heading, const float *goal, float *
             if (t <= 0.05f || t > 1.0f || lat > 15) break;   /* (alongside its first leg only: past the whole leg it overshot a turn) */
             memmove(out, out + 3, (size_t)(n - 1) * 12); n--;
             if (joinDist) *joinDist = lat;
+        }
+        /* 1.8.0: spikes - where two drawn roads meet at a sharp angle the shared point can lie past the fork, so the route
+           ran out to it and doubled back (a 150 degree+ turn): a spike point whose neighbours are within 15 m of each
+           other is cut, and the driver takes the fork directly */
+        for (int k = 1; k + 1 < n; ) {
+            const float *p0 = &out[(k - 1) * 3], *p1 = &out[k * 3], *p2 = &out[(k + 1) * 3];
+            float h1 = atan2f(p1[0] - p0[0], p1[2] - p0[2]), h2 = atan2f(p2[0] - p1[0], p2[2] - p1[2]);
+            if (fabsf(wrapf(h2 - h1)) > 2.6f && d2(p0, p2) < 15.0f) { memmove(&out[k * 3], &out[(k + 1) * 3], (size_t)(n - k - 1) * 12); n--; if (k > 1) k--; }
+            else k++;
         }
         if (id) *id = -1; g_vUsed++; return n; }
     if (g_gn >= 2 && blocks_active()) return 0;   /* 1.7.7: the network has no open way (a road closed): the grid planner goes round instead */

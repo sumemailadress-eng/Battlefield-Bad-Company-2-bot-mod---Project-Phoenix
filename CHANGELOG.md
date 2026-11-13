@@ -28,6 +28,43 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.8.0 - IFV turrets, the Panama Canal dip, infantry against vehicles, empty driver seats, stray routes
+
+- **IFV turrets aim right.** Each vehicle now keeps its own turret settings: the input that turns it, which way, and
+  where its gun points. Before, testing the turret on a second BMD-3 or Bradley (which can have its turret part
+  somewhere else in memory) overwrote the first one's settings, and the first one then aimed with the wrong input or
+  180 degrees off. In the live log, the BMD-3 main gun was found "turned 180 degrees" on the first one and "0 degrees"
+  on the second. Other fixes:
+  - A turret that someone had already turned when it was tested no longer sets the "where the gun points" offset;
+    the offset found on a fresh vehicle is used.
+  - A re-test starts clean (1.7.9 kept the last test's elevation part).
+  - The elevation test pushes longer and harder: IFV guns elevate slowly and came out as "no elevation found".
+  - A tank's or IFV's main gun that fails its test is tried again up to three times (live, the Abrams main gun failed
+    once and its driver turned the hull at targets for the rest of the round).
+- **Dips and climbs: full throttle.** On a route you drew (under 4 m off it), where the route drops or climbs 2.5 m
+  within the next 40 m, or the vehicle is pitched 9 degrees or more, the driver guns it: full throttle plus boost
+  (Shift), no stops for "steps" or "drops", no braking for the slope in front. This is for Panama Canal's half-pipe
+  channel, where the bottom and the far slope read as a step and a wall and drivers lifted off half-way. Log: "guns
+  ... through the dip / climb on its route".
+- **Infantry shoot at vehicles.**
+  - Every class now fires its rifle at light vehicles (quads, jeeps, boats, open emplacements: the crew sits in the
+    open) out to 70 m, besides helicopters. Before, rifles only fired at helicopters, so a jeep crew could drive
+    through a squad untouched.
+  - Launchers and 40 mm grenades still go at every enemy vehicle (40 mm now out to 90 m), and a rocket goes at armour
+    before a jeep at the same range.
+  - Engineers get their rockets back over time: one every 25 s, up to 5. Before, five rockets lasted a whole life.
+- **A driverless vehicle: drive it or get out.** When the driver gets out, a passenger moves over to the driver's seat
+  whenever the flag is more than 55 m away (was 80 m for armour, 110 m for anything else), or gets out. Passengers no
+  longer sit in a vehicle nobody drives.
+- **Only routes you drew.** Old LearnViewer route lines (`<map>.routes`) are used only on a map with no routes drawn in
+  the 3D map. On Panama Canal a driver took one of those old lines, which the 3D map doesn't show. Also:
+  - Two drawn roads count as crossing only where their lines really intersect. 1.7.9 linked any points of two routes
+    within 5 m, which tied roads running side by side together.
+  - Where two drawn roads meet at a sharp angle, the shared point can lie past the fork. The route used to run out to
+    it and double back; that spike is now cut and the driver takes the fork directly. On your Arica Rush routes, 136
+    of 3247 test trips had such a doubling back; now none do.
+- More vehicle names count as armour: BTR, M113, CV90.
+
 ## What changed in 1.7.9 - drivers: forward out of the HQ, forks, traffic, jams, always a job
 
 From a live round on Panama Canal and the vehicle driving in ThugBot 0.4.8 / FloodBots.

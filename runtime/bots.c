@@ -64,7 +64,7 @@ typedef struct Bot {
     uint32_t vehicle; int seat, vehRole; double vehSince, vehCheckAt, vehEnterUntil, vehProgressAt; float vehProgressDist;
     int hState; double hStateAt, fireUntil, shootAt; float hBias, hPrevY, hPrevPitch, hPrevRoll, hPrevHeading, hPrevPos[3], hAlt, hLand[3]; int hHaveLand, hFlag; double hLoiterUntil; float hOrbit;
     float tPush; int tStage, tAct, tCand, gunner, runOut, tBase, tVerOk, tTgtVeh, aimOwned, tLogged; float tBaseYaw, tBasePitch, tPrevRel, viewOffY, viewOffP; uint32_t tVerVeh, tTgtRef; float tVerRel0, tVerExp, tIy, tIp; double tAt, engageUntil, engageCool, hullUntil; float tD1, tPrevPos[3], tSpeed, tTarget[3];
-    int hasAT, hasGL, atOn, atHeli, atGL; uint32_t atVeh; double atAt, atUntil, atPrevAt; float atPt[3], atPrev[3], atVel[3];
+    int hasAT, hasGL, atOn, atHeli, atGL, atLight; double rocketRegenAt; uint32_t atVeh; double atAt, atUntil, atPrevAt; float atPt[3], atPrev[3], atVel[3];
     double svAt, rushUntil, supplyAt; float pvPrevHeading, pvPrevErr, pvPrevThr, hNoTurn; double swimAt; uint32_t svRef; float svPrev[3], svVel[3];
     double exitBlockUntil, doorAt, avoidAt, wiggleUntil; int airHoldLogged, crewBoard, revCount, airOn, airLogged; double airAt, airSeenAt, tgtSeenAt; float airPt[3], airPrev[3], airVel[3], tgtPrev[3], tgtVel[3]; float stuckTime, avoidBias, frontClear, revSpot[3];
     uint32_t lastVeh; int exitFails; double vehZoneAt, vehWaitUntil, vehParkAt; float steerSign; int steerCalib; float calibStartHeading, calibStart[3]; double calibAt; double reverseUntil;
@@ -82,6 +82,7 @@ typedef struct Bot {
     /* 1.7.9: traffic - the vehicle in the way on the route, waiting behind it, going round it */
     uint32_t trafEnt; float trafPrev[3], trafPos[3], trafGap, trafSpeed, trafThr; double trafAt, trafPrevAt, trafStillSince, trafWaitSince, trafJamAt, laneUntil;
     float bypass[3][3]; int bypassN, bypassI, bypassSide; double bypassUntil, bypassTryAt; float laneSide;
+    double gunItUntil, gunItAt, gunLogAt;   /* 1.8.0 */
     float vStart[3], vProgPos[3]; double retargetAt, backRoundUntil, trafIgnoreUntil; uint32_t trafVeh, trafIgnore; int trafFails;
     double heldUntil[BC2_EiaUndefined];
     float levels[BC2_EiaUndefined];
@@ -1225,7 +1226,7 @@ static int veh_tracked(const char *n)
 }
 static int veh_armoured(const char *n)
 {
-    static const char *k[] = {"M1A2", "ABRAMS", "T90", "T-90", "BMD", "BRADLEY", "M3A3", "BMP", "M48", "T54", "T-54", "TANK", "APC", "IFV", "CAV"};
+    static const char *k[] = {"M1A2", "ABRAMS", "T90", "T-90", "BMD", "BRADLEY", "M3A3", "BMP", "M48", "T54", "T-54", "TANK", "APC", "IFV", "CAV", "BTR", "M113", "CV90"};
     char u[64]; int i = 0; for (; n[i] && i < 63; i++) u[i] = (char)toupper((unsigned char)n[i]); u[i] = 0;
     for (unsigned j = 0; j < sizeof k / sizeof *k; j++) if (strstr(u, k[j])) return 1;
     return 0;
@@ -1509,7 +1510,11 @@ float tur_rel0(int i); float tur_pit0(int i);
 typedef struct TurretCal { uint32_t data, calVeh; int seat, state, yawAct, pitchAct, havePitch, retests; float yawSign, pitchSign, yawOff, pitchOff; TurPath yaw, pitch;
     /* 1.5: the transform path can differ between vehicles of a type (live 1.4: T-54 seat 0 at depth 1 +0x380 on one,
        depth 2 +0x10 on another) - each vehicle tested keeps its own */
-    uint32_t ents[8]; TurPath entYaw[8], entPitch[8]; int entHavePitch[8], entN; } TurretCal;
+    uint32_t ents[8]; TurPath entYaw[8], entPitch[8]; int entHavePitch[8], entN;
+    /* 1.8.0: everything else per vehicle too - a re-test on a second IFV (another transform, another input, another
+       offset) overwrote the first one's settings, and the first one then aimed with the wrong input or 180 degrees off */
+    int entYawAct[8], entPitchAct[8]; float entYawSign[8], entYawOff[8], entPitchSign[8], entPitchOff[8];
+    float trustedOff; int haveTrusted, fails; double retryAt; TurPath trustedPath; } TurretCal;
 static TurretCal g_turCal[96]; static int g_turCalN; static int g_turOwner = -1; static double g_turOwnerAt;
 static TurretCal *turcal_for(uint32_t data, int seat, int create)
 {
@@ -1590,6 +1595,7 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
     TurretCal *t = turcal_for(vi->data, seat, 1);
     if (!t) return NULL;
     if (t->state) { if (b->tStage) turret_release(b); return t->state > 0 ? t : NULL; }
+    if (now < t->retryAt) return NULL;   /* 1.8.0: a failed test is tried again later (on another vehicle, after a pause) */
     int me = (int)(b - g_bots);
     if (g_turOwner >= 0 && g_turOwner != me && now - g_turOwnerAt < 40 && g_bots[g_turOwner].used && g_bots[g_turOwner].vehicle) return NULL;   /* someone else is testing */
     int heli = vi->kind == VK_HELI;
@@ -1604,8 +1610,9 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
     switch (b->tStage) {
     case 0: case 1: {
         int r = tur_search(vi->entity, vi->pos, 120);
-        if (r < 0) { t->state = -1; rt_log("vehicles: '%s' seat %d - no turret transform found (%s)", vi->name, seat, seat == 0 && !heli ? "the driver will turn the hull at targets" : "gunner fires where it looks"); turret_release(b); return NULL; }
+        if (r < 0) { if (++t->fails >= 3 || !(seat == 0 && veh_armoured(vi->name))) t->state = -1; else t->retryAt = now + 45; rt_log("vehicles: '%s' seat %d - no turret transform found (%s)", vi->name, seat, t->state ? (seat == 0 && !heli ? "the driver will turn the hull at targets" : "gunner fires where it looks") : "tried again later"); turret_release(b); return NULL; }
         if (r == 0) { b->tStage = 1; return NULL; }
+        t->havePitch = 0; t->pitchOff = 0;   /* (a re-test starts clean: 1.7.9 kept the last test's elevation part) */
         if (!b->tLogged++) rt_log("vehicles: '%s' seat %d - %d candidate transform(s), testing the turret inputs", vi->name, seat, r);
         b->tStage = 2; b->tAct = 0; b->tAt = now; tur_baseline(vi->entity, vi); return NULL; }
     case 2:   /* settle (the last input still lands for a frame or two), then drop anything that moves by itself */
@@ -1615,7 +1622,12 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
         tur_mark_noisy(vi->entity, vi, 0.04f);
         b->tBaseYaw = b->yaw; b->tBasePitch = b->pitch;
         while (yl[b->tAct] >= 0 && yl[b->tAct] == steerAct) b->tAct++;
-        if (yl[b->tAct] < 0) { t->state = -1; rt_log("vehicles: '%s' seat %d - no input turned a turret", vi->name, seat); turret_release(b); return NULL; }
+        if (yl[b->tAct] < 0) {
+            /* 1.8.0: three tries before giving up on the seat for the round (live: the Abrams's main gun failed once - a
+               moving or shaken vehicle - and its driver turned the hull at targets for the rest of the round) */
+            if (++t->fails >= 3 || !(seat == 0 && veh_armoured(vi->name))) t->state = -1; else t->retryAt = now + 45;   /* (a tank's or IFV's main gun only) */
+            rt_log("vehicles: '%s' seat %d - no input turned a turret%s", vi->name, seat, t->state ? "" : " - tried again later");
+            turret_release(b); return NULL; }
         b->tStage = 3; b->tAt = now; return NULL;
     case 3: {
         tur_apply(b, yl[b->tAct], 0.6f);
@@ -1639,7 +1651,12 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
             /* 1.6.4: the part's own forward axis need not be the gun's (a model turned 90 or 180 degrees): BC2 spawns turrets
                facing the hull's front, so where this part pointed before the test (to the nearest quarter turn) is "ahead".
                1.6.3 took the part's axis as the barrel - tanks fired sideways or behind */
-            { float r0 = tur_rel0(b->tCand); t->yawOff = r0 > 90 ? 0 : roundf(r0 / 1.5707963f) * 1.5707963f;
+            { float r0 = tur_rel0(b->tCand), q = r0 > 90 ? 0 : roundf(r0 / 1.5707963f) * 1.5707963f;
+              /* 1.8.0: a turret someone already turned (a second IFV, a vehicle a human used) does not stand at a quarter
+                 turn: its offset is not where it points now - the one found on a vehicle tested fresh is kept */
+              int same = t->haveTrusted && t->trustedPath.depth == pp->depth && !memcmp(t->trustedPath.off, pp->off, sizeof pp->off[0] * (pp->depth + 1));
+              if (r0 > 90 || fabsf(r0 - q) < 0.2f) { t->yawOff = q; if (!t->haveTrusted) { t->trustedOff = q; t->trustedPath = *pp; t->haveTrusted = 1; } }
+              else { t->yawOff = same ? t->trustedOff : q; rt_log("vehicles: '%s' seat %d - turret was turned %.0f degrees when tested - %s", vi->name, seat, r0 * 57.2958f, same ? "using the offset found before" : "offset guessed"); }
               if (fabsf(t->yawOff) > 0.01f) rt_log("vehicles: '%s' seat %d - turret part is turned %.0f degrees from the gun - corrected", vi->name, seat, t->yawOff * 57.2958f); }
             rt_log("vehicles: '%s' seat %d - turret turns with %s (%+.0f), transform depth %d at +0x%x", vi->name, seat, t->yawAct == TUR_VIEW_YAW ? "the aim (view)" : t->yawAct == BC2_EiaCameraYaw ? "CameraYaw" : t->yawAct == BC2_EiaYaw ? "Yaw" : "Roll", t->yawSign, pp->depth, pp->off[pp->depth]);
             b->tStage = 5; b->tAct = 0; b->tAt = now; tur_baseline(vi->entity, vi); return NULL;
@@ -1655,28 +1672,30 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
         b->tStage = pitchList[b->tAct] >= 0 && pitchList[b->tAct] != steerAct ? 6 : 8; b->tAt = now; return NULL;
     case 6: {   /* up, then down: a gun resting at its lowest (or highest) elevation does not move one way (1.4 tried one way only:
                    "no elevation found" on the T-54, the Gaz-69 and the Huey) */
-        float push = tt < 0.65 ? 0.6f : -0.6f;
+        float push = tt < 1.0 ? 0.8f : -0.8f;   /* (1.8.0: longer and harder - IFV guns elevate slowly: "no elevation found") */
         tur_apply(b, pitchList[b->tAct], push);
         float amt; int c = tur_moved(vi->entity, vi, 1, &amt);
-        if (c >= 0 && fabsf(amt) > 0.05f) { b->tCand = c; b->tD1 = amt; b->tPush = push; b->tStage = 7; b->tAt = now; tur_baseline(vi->entity, vi); return NULL; }
-        if (tt > 1.4) { tur_apply(b, pitchList[b->tAct], 0); b->tAct++; b->tStage = 5; b->tAt = now; tur_baseline(vi->entity, vi); }
+        if (c >= 0 && fabsf(amt) > 0.035f) { b->tCand = c; b->tD1 = amt; b->tPush = push; b->tStage = 7; b->tAt = now; tur_baseline(vi->entity, vi); return NULL; }
+        if (tt > 2.1) { tur_apply(b, pitchList[b->tAct], 0); b->tAct++; b->tStage = 5; b->tAt = now; tur_baseline(vi->entity, vi); }
         return NULL; }
     case 7: {   /* the other way: it has to follow back */
         tur_apply(b, pitchList[b->tAct], -b->tPush);
         float back = tur_change(vi->entity, vi, b->tCand, 1);
-        if (back * b->tD1 < 0 && fabsf(back) > 0.03f) {
+        if (back * b->tD1 < 0 && fabsf(back) > 0.02f) {
             const TurPath *pp = tur_path(b->tCand);
             if (pp) { t->pitch = *pp; t->pitchAct = pitchList[b->tAct]; { float p0 = tur_pit0(b->tCand); t->pitchOff = p0 > 90 || fabsf(p0) < 0.3f ? 0 : p0; } t->pitchSign = (b->tD1 > 0) == (b->tPush > 0) ? 1.0f : -1.0f; t->havePitch = 1;
                 rt_log("vehicles: '%s' seat %d - gun elevates with %s (%+.0f)", vi->name, seat, t->pitchAct == TUR_VIEW_PITCH ? "the aim (view)" : t->pitchAct == BC2_EiaCameraPitch ? "CameraPitch" : "Pitch", t->pitchSign); }
             b->tStage = 8; return NULL;
         }
-        if (tt > 1.8) { tur_apply(b, pitchList[b->tAct], 0); b->tAct++; b->tStage = 5; b->tAt = now; tur_baseline(vi->entity, vi); }
+        if (tt > 2.4) { tur_apply(b, pitchList[b->tAct], 0); b->tAct++; b->tStage = 5; b->tAt = now; tur_baseline(vi->entity, vi); }
         return NULL; }
     default:
         t->state = 1; t->calVeh = vi->entity; turret_release(b);
         { int k = 0; while (k < t->entN && t->ents[k] != vi->entity) k++;
           if (k == t->entN) { if (t->entN < 8) t->entN++; else k = (int)(rt_rand() % 8); }
-          t->ents[k] = vi->entity; t->entYaw[k] = t->yaw; t->entPitch[k] = t->pitch; t->entHavePitch[k] = t->havePitch; }
+          t->ents[k] = vi->entity; t->entYaw[k] = t->yaw; t->entPitch[k] = t->pitch; t->entHavePitch[k] = t->havePitch;
+          t->entYawAct[k] = t->yawAct; t->entYawSign[k] = t->yawSign; t->entYawOff[k] = t->yawOff;
+          t->entPitchAct[k] = t->pitchAct; t->entPitchSign[k] = t->pitchSign; t->entPitchOff[k] = t->pitchOff; }
         rt_log("vehicles: '%s' seat %d - turret ready%s", vi->name, seat, t->havePitch ? "" : " (no elevation found: aims level)"); b->tLogged = 0;
         return t;
     }
@@ -1693,10 +1712,13 @@ static int vehicle_shoot(Bot *b, double now, const VehicleInfo *vi, int seat, in
 {
     /* speed of the vehicle (turret test waits for a stop on the ground) */
     { float d = dist3(vi->pos, b->tPrevPos); memcpy(b->tPrevPos, vi->pos, 12); b->tSpeed = b->tSpeed * 0.8f + fminf(d * 30.0f, 40) * 0.2f; }
-    TurretCal *t = turret_think(b, now, vi, seat, steerAct);
+    TurretCal *t = turret_think(b, now, vi, seat, steerAct), *tr = t, tl;
     if (turret_calibrating(b) || veh_test_running(vi->entity, b)) return 0;
     const TurPath *yp = t ? &t->yaw : NULL, *pp = t ? &t->pitch : NULL; int hp = t ? t->havePitch : 0, known = 0;
-    if (t) for (int k = 0; k < t->entN; k++) if (t->ents[k] == vi->entity) { yp = &t->entYaw[k]; pp = &t->entPitch[k]; hp = t->entHavePitch[k]; known = 1; break; }
+    if (t) for (int k = 0; k < t->entN; k++) if (t->ents[k] == vi->entity) { yp = &t->entYaw[k]; pp = &t->entPitch[k]; hp = t->entHavePitch[k]; known = 1;
+        /* 1.8.0: this vehicle's own input, direction and offsets (t-> below reads them; tr-> is the shared record) */
+        tl = *t; tl.yawAct = t->entYawAct[k]; tl.yawSign = t->entYawSign[k]; tl.yawOff = t->entYawOff[k];
+        tl.pitchAct = t->entPitchAct[k]; tl.pitchSign = t->entPitchSign[k]; tl.pitchOff = t->entPitchOff[k]; t = &tl; break; }
     float tp[3]; int isVeh = 0;
     /* 1.7.7: tank and IFV guns reach further - a main gun 450 m (enemy vehicles count as 0.7x as far, so armour out to
        ~640 m), other ground gun seats 300 m; helicopters as before. The aim already allows for the shell's drop. */
@@ -1742,7 +1764,7 @@ static int vehicle_shoot(Bot *b, double now, const VehicleInfo *vi, int seat, in
     if (!t) { b->levels[BC2_EiaFire] = (rt_rand() % 3) != 0; return 1; }   /* fire where it looks */
     float r, p; if (!tur_read(vi->entity, yp, vi, &r, &p)) {
         if (0) {}
-        if (!known && t->retests < 8) { t->retests++; t->state = 0; rt_log("vehicles: '%s' seat %d - turret transform not found on this one - testing it", vi->name, seat); }
+        if (!known && tr->retests < 8) { tr->retests++; tr->state = 0; rt_log("vehicles: '%s' seat %d - turret transform not found on this one - testing it", vi->name, seat); }
         return 1; }
     r = wrap_pi(r - t->yawOff);
     float ey = wrap_pi(wantRel - r);
@@ -1764,7 +1786,7 @@ static int vehicle_shoot(Bot *b, double now, const VehicleInfo *vi, int seat, in
         if (fabsf(b->tVerExp) > 0.5f) {
             float got = wrap_pi(r - b->tVerRel0);
             if (got * b->tVerExp > 0 && fabsf(got) > 0.05f) b->tVerOk = 1;
-            else if (t->retests++ < 8) { t->state = 0; b->tVerVeh = 0; rt_log("vehicles: '%s' seat %d - the turret found on another one does not follow here - testing again", vi->name, seat); return 1; }
+            else if (tr->retests++ < 8) { tr->state = 0; b->tVerVeh = 0; rt_log("vehicles: '%s' seat %d - the turret found on another one does not follow here - testing again", vi->name, seat); return 1; }
             else b->tVerOk = 1;
         }
     }
@@ -2354,7 +2376,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         { Bot *db = driver ? bot_of_player(driver) : NULL; if (db && (db->vehRole != VR_DRIVER || db->vehicle != veh)) driver = 0; }
         /* no driver: take the wheel when bots drive this kind and the flag is worth driving to, else get out */
         if (!driver && vi.kind != VK_HELI && inFor > 1.5 && g_cfg.vehicles >= 2 && (vi.kind == VK_GROUND || vi.kind == VK_UNKNOWN) &&
-            f >= 0 && distFlag >= (veh_armoured(vi.name) ? 80 : 110) && !veh_banned(veh, now)) {
+            f >= 0 && distFlag >= 55 && !veh_banned(veh, now)) {   /* 1.8.0: whenever the flag is not right here (was 80 / 110 m): drive it or get out, never sit */
             const DriveCalib *dc = calib_for(vi.data, 0);
             if (!(dc && (dc->ok < 0 || dc->crashes >= 3)) && eng_vehicle_seat_allowed(veh, b->player, 0)) {
                 /* out of the passenger seat first, then into the driver's (enterVehicle from inside another seat is not
@@ -2810,6 +2832,26 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         }
     } else if (b->pathLen == 1) memcpy(target, b->path, 12);
     float want = heading_to(vi.pos, target);
+    /* 1.8.0: dips and climbs on a saved route - "gun it". Panama Canal has a stretch where the road goes down into a
+       channel and straight up the other side like a half-pipe: the hazard check read the bottom and the top of it as
+       steps, the wall feelers read the far slope as a wall, and the drivers lifted off, braked or stopped for a new
+       route half-way down. On the route you drew (under 4 m off it), where it drops or climbs 2.5 m within the next 40 m
+       or the vehicle itself is pitched 9 degrees or more: full throttle and boost, no hazard stops, no braking for the
+       slope ahead. */
+    if (now >= b->gunItAt) {
+        b->gunItAt = now + 0.25;
+        if (b->pathStrict && offRoute < 4 && b->pathLen >= 2 && !b->pastEnd) {
+            /* (heights along the route itself, from the route point behind the vehicle - a route's heights can sit a metre off
+               the vehicle's origin) */
+            int k0 = b->pathIdx > 0 ? b->pathIdx : 1; float ref = b->path[(k0 - 1) * 3 + 1], lo = ref, hi = ref, along = 0; const float *pv = vi.pos;
+            for (int k = k0; k < b->pathLen && along < 40; k++) { along += dist2d(pv, &b->path[k * 3]); pv = &b->path[k * 3]; lo = fminf(lo, pv[1]); hi = fmaxf(hi, pv[1]); }
+            if (hi - ref > 2.5f || ref - lo > 2.5f || fabsf(vi.fwd[1]) > 0.16f) {
+                if (now > b->gunItUntil && now > b->gunLogAt) { b->gunLogAt = now + 30; static int gl; if (gl++ < 30 || g_cfg.verbose) rt_log("vehicles: %s guns '%s' through the dip / climb on its route (%.1f m down, %.1f m up in 40 m)", b->name, vi.name, ref - lo, hi - ref); }
+                b->gunItUntil = now + 2.0;
+            }
+        }
+    }
+    int gunIt = now < b->gunItUntil;
     /* obstacle avoidance (1.2): three feelers from the front bumper - straight and 26 degrees either side - at 1.2 m;
        an obstacle on the line steers the vehicle to the freer side and slows it down before it hits anything */
     float clearL = 0, clearR = 0;
@@ -2852,7 +2894,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     }
     (void)clearL; (void)clearR;
     /* 1.6.6: hazards the wall feelers cannot see (wheeled vehicles; tanks roll over barrels and kerbs) */
-    if (!tracked && now >= b->hazAt && now >= b->reverseUntil && fwdSpeed > -0.5f) {
+    if (!tracked && now >= b->hazAt && now >= b->reverseUntil && fwdSpeed > -0.5f && !gunIt) {
         b->hazAt = now + 0.25;
         int quad = name_has(vi.name, "QUAD") || name_has(vi.name, "ATV");
         float bumper = quad ? 1.6f : 3.2f, stepMax = quad ? 0.3f : 0.38f, range = fmaxf(5.0f, fminf(10.0f, speed * 0.9f + 4.0f));
@@ -2905,7 +2947,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     if (bend > 1.0f && speed > 9) thr = fminf(thr, 0.0f);          /* hairpin ahead: lift off */
     else if (bend > 0.6f && speed > 12) thr = fminf(thr, 0.45f);
     if (fabsf(err) > 0.9f && fwdSpeed > 10) thr = -0.5f;                 /* too fast for the turn: brake (throttle against the motion) */
-    if (!escaping && b->frontClear < 8) { if (fwdSpeed > 5) thr = -0.6f; else thr = fminf(thr, 0.4f); }   /* something close in front: slow, steer round it */
+    if (!escaping && !gunIt && b->frontClear < 8) { if (fwdSpeed > 5) thr = -0.6f; else thr = fminf(thr, 0.4f); }   /* something close in front: slow, steer round it */
     if (distFlag < 50) thr = fminf(thr, 0.75f);   /* 1.6.10: 50 m / 0.75 (was 80 m / 0.6: half throttle is a crawl in BC2) */
     /* 1.6.10: run out of route gently - slower in the last 30 m, braking from speed in the last 15 m (the flag zone or
        the end of a route that stops short of it), instead of arriving at 10 m/s and overshooting */
@@ -2919,7 +2961,8 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         if (b->trafThr < 1.0f) thr = fminf(thr, b->trafThr);
         if (b->bypassN) thr = fminf(thr, 0.7f);
     }
-    if (engaged) thr = fminf(thr, 0.75f);   /* fighting: ease off so the gun settles (1.6.10: 0.75, was 0.55) */
+    if (engaged && !gunIt) thr = fminf(thr, 0.75f);   /* fighting: ease off so the gun settles (1.6.10: 0.75, was 0.55) */
+    if (gunIt && !escaping && now >= b->reverseUntil && b->trafThr >= 1.0f && !(b->cornerV < 50 && fwdSpeed > b->cornerV + 4) && fabsf(err) < 0.9f) thr = 1.0f;   /* 1.8.0: through the dip at full throttle */
     if (escaping && now > b->escDriveUntil && fabsf(err) < 0.35f) b->escDriveUntil = now + 2.5;   /* lined up: drive out */
     /* 1.6.10: a wheeled vehicle not yet facing the way out turns by reversing (the wheel the other way swings the nose
        round) - 1.6.9 turned it with the throttle on, which against a wall only pushes the nose into it */
@@ -3000,7 +3043,7 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     {
         float pitchUp = vi.fwd[1] * (float)c->fwdSign, climb = 0, along = 0; const float *pv = vi.pos;
         for (int k = b->pathIdx; k < b->pathLen && along < 25; k++) { along += dist2d(pv, &b->path[k * 3]); pv = &b->path[k * 3]; if (pv[1] - vi.pos[1] > climb) climb = pv[1] - vi.pos[1]; }
-        int boost = thr > 0.5f && !escaping && now >= b->reverseUntil && b->frontClear > 8 && (pitchUp > 0.07f || climb > 1.5f);
+        int boost = thr > 0.5f && !escaping && now >= b->reverseUntil && (b->frontClear > 8 || gunIt) && (pitchUp > 0.07f || climb > 1.5f || gunIt);
         b->levels[BC2_EiaSprint] = boost ? 1.0f : 0.0f;
         if (boost && g_cfg.verbose && now > b->boostLogAt) { b->boostLogAt = now + 20; rt_log("vehicles: %s boosts '%s' uphill (pitch %.2f, route climbs %.1f m in 25 m)", b->name, vi.name, pitchUp, climb); }
     }
@@ -3026,14 +3069,20 @@ static int at_target(Bot *b, double now, const float *eye, float *aim)
         VehicleInfo nv; if (!world_vehicle_read(v->entity, &nv)) continue;
         nv.kind = v->kind;
         float d = dist3(nv.pos, eye);
-        float maxd = b->hasAT && b->rockets > 0 ? (nv.kind == VK_HELI ? 130 : 150) : b->hasGL && nv.kind != VK_HELI ? 80 : (nv.kind == VK_HELI ? 110 : 0);
+        /* 1.8.0: rifles also on light vehicles (quads, jeeps, boats, open emplacements: the crew sits in the open) out to
+           70 m - 1.7.9 rifles fired only at helicopters, so a jeep crew drove through a squad untouched; launchers on
+           every kind of vehicle (armour first by being the bigger threat at the same range) */
+        int light = nv.kind != VK_HELI && !veh_armoured(v->name);
+        float maxd = b->hasAT && b->rockets > 0 ? (nv.kind == VK_HELI ? 130 : 150) : b->hasGL && nv.kind != VK_HELI ? 90 : (nv.kind == VK_HELI ? 110 : light ? 70 : 0);
+        if (b->hasAT && b->rockets > 0 && light) d *= 1.15f;   /* (rockets: armour before a jeep at the same range) */
         if (d > maxd || d < 8) continue;
         float c[3] = {nv.pos[0], nv.pos[1] + 1.2f, nv.pos[2]};
         if (!los_clear(eye, c, 5.0f)) continue;
         if (v->entity == b->atVeh) d *= 0.7f;   /* keep the one we are on */
-        if (d < bd) { bd = d; best = i; bv = nv; }
+        if (d < bd) { bd = d; best = i; bv = nv; memcpy(bv.name, v->name, sizeof bv.name); }
     }
     if (best < 0) return 0;
+    b->atLight = bv.kind != VK_HELI && !veh_armoured(bv.name);
     if (bv.entity != b->atVeh) { b->atVeh = bv.entity; memcpy(b->atPrev, bv.pos, 12); b->atPrevAt = now; memset(b->atVel, 0, 12); }
     else if (now - b->atPrevAt > 0.2) {
         float k = 1.0f / (float)(now - b->atPrevAt);
@@ -3356,12 +3405,15 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
     } else {
         wantYaw = yaw_from_heading(moving ? steerHeading : heading_from_yaw(b->yaw));
     }
+    /* 1.8.0: rockets come back slowly (ammo boxes, kits picked up): one every 25 s, up to 5 - 1.7.9 engineers that had
+       fired five were out of rockets until they died */
+    if (b->hasAT && b->rockets < 5) { if (!b->rocketRegenAt) b->rocketRegenAt = now + 25; else if (now >= b->rocketRegenAt) { b->rockets++; b->rocketRegenAt = now + 25; } } else b->rocketRegenAt = 0;
     /* anti-vehicle: pick the vehicle (2x a second) and aim at its lead point */
     if (now >= b->atUntil - 0.01 || !b->atOn) {
         float eyeA[3] = {self->position[0], self->position[1] + 1.55f, self->position[2]}, ap[3];
         int launcher = (b->hasAT && b->rockets > 0) || b->hasGL;
-        int want = g_cfg.equipment && (launcher ? (!engaging || tdist > 25) : (!engaging && b->cls != CLS_RECON));
-        b->atOn = want && at_target(b, now, eyeA, ap) && ((b->hasAT && b->rockets > 0) || b->atGL || b->atHeli);
+        int want = g_cfg.equipment && (launcher ? (!engaging || tdist > 25) : !engaging);
+        b->atOn = want && at_target(b, now, eyeA, ap) && ((b->hasAT && b->rockets > 0) || b->atGL || b->atHeli || b->atLight);
         if (b->atOn) memcpy(b->atPt, ap, 12);
         b->atUntil = now + 0.5;
     }
@@ -3454,14 +3506,21 @@ static void brain(Bot *b, double now, float dt, const BC2ObservedPlayer *self)
             if (!eqBusy && yawErr < atTol && fabsf(wantPitch - b->pitch) < atTol * 1.5f && now > b->glAt) {
                 if (eq_start(b, now, BC2_EiaGrenadeLauncher, b->atGL ? 0.15 : 0.25, 0, 0, b->atGL ? BC2_EiaGrenadeLauncher : BC2_EiaSwitchPrimaryWeapon)) {
                     if (b->atGL) b->glAt = now + randr(4.0f, 6.0f); else { b->glAt = now + randr(5.5f, 8.0f); b->rockets--; }   /* reload, then again */
+#ifdef PHX_HARNESS
+                    { extern int g_hAT[4]; g_hAT[b->atGL ? 1 : 0]++; }
+#endif
                     static int atLogs; if (atLogs++ < 16) rt_log("combat: %s fires %s at an enemy %s %.0f m away%s", b->name, b->atGL ? "a 40 mm grenade" : "a rocket", b->atHeli ? "helicopter" : "vehicle",
                                                                  dist3(b->pos, b->atPt), !b->atGL && b->rockets == 0 ? " (last rocket)" : "");
                 }
                 eqBusy = b->eqState != EQ_IDLE;
             }
-        } else if (!eqBusy && yawErr < 0.08f) {   /* rifle fire at a low helicopter */
+        } else if (!eqBusy && yawErr < 0.08f) {   /* rifle fire at a low helicopter or a light vehicle's crew */
             if (now < b->burstUntil) b->levels[BC2_EiaFire] = 1;
-            else if (now > b->pauseUntil) { b->burstUntil = now + randr(0.3f, 0.7f); b->pauseUntil = b->burstUntil + randr(0.3f, 0.6f); b->levels[BC2_EiaFire] = 1; }
+            else if (now > b->pauseUntil) { b->burstUntil = now + randr(0.3f, 0.7f); b->pauseUntil = b->burstUntil + randr(0.3f, 0.6f); b->levels[BC2_EiaFire] = 1;
+#ifdef PHX_HARNESS
+                { extern int g_hAT[4]; g_hAT[b->atHeli ? 2 : 3]++; }
+#endif
+            }
             b->fireTime += dt;
         }
     }
@@ -3889,12 +3948,12 @@ void bots_stop_all(void)
 }
 
 #ifdef PHX_HARNESS
-double g_hStartT, g_hStartRev;
+double g_hStartT, g_hStartRev; int g_hAT[4];
 #endif
 void bots_status(void)
 {
 #ifdef PHX_HARNESS
-    rt_log("HSTAT first 12 s of driving: %.1f s, reversing %.1f s (%.0f%%)", g_hStartT, g_hStartRev, g_hStartT > 0 ? 100 * g_hStartRev / g_hStartT : 0);
+    rt_log("HSTAT first 12 s of driving: %.1f s, reversing %.1f s (%.0f%%); anti-vehicle: %d rockets, %d 40 mm, %d rifle bursts at helicopters, %d at light vehicles", g_hStartT, g_hStartRev, g_hStartT > 0 ? 100 * g_hStartRev / g_hStartT : 0, g_hAT[0], g_hAT[1], g_hAT[2], g_hAT[3]);
 #endif
     int st[5][4] = {{0}};
     for (int i = 0; i < MAX_BOTS; i++) if (g_bots[i].used && g_bots[i].team >= 1 && g_bots[i].team <= 4) st[g_bots[i].team][g_bots[i].state]++;

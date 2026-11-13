@@ -72,7 +72,10 @@ uint32_t eng_resource_by_id(uint32_t id) { return id && (int)id < resCount ? res
 /* ---------------- world geometry ---------------- */
 typedef struct Box { float mn[3], mx[3]; } Box;
 static Box boxes[256]; static int boxCount; static int g_doorBox = -1; static float g_houseY; int sim_doors;
-static float terrain(float x, float z) { return 2.0f * sinf(x * 0.013f) + 1.5f * cosf(z * 0.017f) + 0.004f * x; }
+static float dip_at(float x, float z) {   /* 1.8.0: DIP=1 - a half-pipe channel across the road at x 180-230 (7 m deep, steep sides) */
+    static int on = -1; if (on < 0) on = getenv("DIP") != NULL; if (!on || x < 180 || x > 230 || z < -80 || z > 20) return 0;
+    float u = (x - 205) / 25.0f; return -7.0f * (1 - u * u * u * u); }
+static float terrain(float x, float z) { return 2.0f * sinf(x * 0.013f) + 1.5f * cosf(z * 0.017f) + 0.004f * x + dip_at(x, z); }
 static void add_box(float x0, float y0, float z0, float x1, float y1, float z1) { boxes[boxCount++] = (Box){{x0, y0, z0}, {x1, y1, z1}}; }
 static unsigned rays;
 unsigned eng_ray_count(void) { return rays; }
