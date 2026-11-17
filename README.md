@@ -93,7 +93,11 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   learning map.
 
 ### Tools
-- **Phoenix-Launcher.bat** (1.7.0): the new launcher in Bad Company 2's olive, sand and amber. Backend lights and
+- **Phoenix-Classic-Launcher.exe** - **use this one.** One window to start the backend (XAMPP MySQL/Apache, redirector,
+  emulator), the server, the bots and the game. **Stop All** shuts everything down safely. It also has bot settings, a
+  map-list maker, a **Players** window that registers accounts on your BF-Portable backend, and a **LAN games** window
+  that finds servers on your network and joins them. (Called `PhoenixLauncher.exe` before 1.8.3b.)
+- **Phoenix-Launcher.bat** (1.7.0, still has issues - use the classic launcher to play): the new launcher in Bad Company 2's olive, sand and amber. Backend lights and
   start / stop (MySQL, redirector, BC2 emulator), servers 1 - 4 with live map, mode and players, start / stop / next map,
   bots that attach by themselves when a server's level is up, the bot settings, each server's map list (mode, Vietnam,
   order, rounds, play next) and the tools below. Every map has a picture (1.7.2): its overhead map, made on your PC from
@@ -103,10 +107,6 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 - **Map scanner** (1.7.1): **SCAN ALL MAPS** in the launcher plays every map once with Phoenix in scan mode (no bots) so
   every map is in the 3D map, with its flags or M-COMs. Maps scanned by older versions get theirs from the old bot logs. Draw, move and delete foot and vehicle routes and
   save them; the bots use them within 5 seconds. Needs Node.js.
-- **PhoenixLauncher.exe** (classic): one window to start the backend (XAMPP MySQL/Apache, redirector, emulator), the server, the
-  bots and the game. **Stop All** shuts everything down safely. It also has bot settings, a map-list maker, a
-  **Players** window that registers accounts on your BF-Portable backend, and a **LAN games** window that finds servers
-  on your network and joins them.
 - **LearnViewer.html**: a map of what the bots learned. It shows deaths, kills, human routes, stuck spots, the map's
   roads and where vehicles got stuck, and you can draw vehicle routes in it.
 - Logs for every session go to `reports\<date-time>\runtime.log`. Windows user names are written as `~`.
@@ -125,9 +125,9 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 1. Download the latest release zip from the [Releases page](https://github.com/sumemailadress-eng/Battlefield-Bad-Company-2-bot-mod---Project-Phoenix/releases)
    (the `Project-Phoenix-BC2-...zip` under **Assets**) and extract it anywhere, for example next to your BF-Portable
-   folder. That zip has `PhoenixLauncher.exe`, `bin\PhoenixBC2.dll` and `bin\PhoenixAttach.exe` ready to run.
-   **Code → Download ZIP** and the "Source code" archives are the source only - no programs; build them yourself
-   (below) or use the release zip.
+   folder. That zip has `Phoenix-Classic-Launcher.exe`, `Phoenix-Launcher.bat`, `bin\PhoenixBC2.dll` and
+   `bin\PhoenixAttach.exe` ready to run. Since 1.8.3b the programs are in the repository too, so **Code → Download ZIP**
+   and the "Source code" archives also run as they are.
    The release zip includes a `navcache` folder with the maps already surveyed and what the bots learned on them, so
    the first round on those maps starts straight away. It is merged into your `PhoenixNavcache` when the bots attach.
    **Updating from an older version?** Nothing to copy. Since 1.6.9 the maps already surveyed and everything the bots
@@ -141,20 +141,20 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 ## Play
 
-**With the new launcher (easiest)**
-1. Run `Phoenix-Launcher.bat`. If it can't find your BF-Portable folder, click **PATHS**.
-2. Click **START BACKEND**, pick a server card and press **START**. The bots attach as soon as the level is up (allow the
-   administrator prompt if Windows asks).
-3. Press **PLAY BAD COMPANY 2** and join from the server browser.
-4. **STOP** closes the server; **STOP** under the backend shuts MySQL down cleanly.
-
-**With the classic launcher**
-1. Run `PhoenixLauncher.exe`.
+**With the classic launcher (recommended)**
+1. Run `Phoenix-Classic-Launcher.exe`.
 2. Point it at your server (BF-Portable's `BFBC2.bat` or the server .exe) and your game. **Find XAMPP** fills in the
    backend programs.
 3. Press **Start All**. This starts the backend, then the server, then the bots, and after the delay you set, the game.
 4. Join your server. Bots join both teams a few seconds after the level is running.
 5. When you're done, press **Stop All**.
+
+**With the new launcher (still has issues)**
+1. Run `Phoenix-Launcher.bat`. If it can't find your BF-Portable folder, click **PATHS**.
+2. Click **START BACKEND**, pick a server card and press **START**. The bots attach as soon as the level is up (allow the
+   administrator prompt if Windows asks).
+3. Press **PLAY BAD COMPANY 2** and join from the server browser.
+4. **STOP** closes the server; **STOP** under the backend shuts MySQL down cleanly.
 
 **By hand**
 1. Start the BC2 server the usual way.
@@ -220,7 +220,7 @@ Bots read the file again whenever it changes, even mid-round.
 Phoenix is plain C, built with a 32-bit MinGW-w64 toolchain (gcc or clang), either on Linux or on Windows with MSYS2.
 
 ```sh
-./build.sh          # bin/PhoenixBC2.dll, bin/PhoenixAttach.exe, PhoenixLauncher.exe, harness/phoenix_harness
+./build.sh          # bin/PhoenixBC2.dll, bin/PhoenixAttach.exe, Phoenix-Classic-Launcher.exe, harness/phoenix_harness
 CC=i686-w64-mingw32-gcc ./build.sh
 ```
 

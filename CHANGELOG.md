@@ -6,12 +6,14 @@ the game's own AI used.
 
 ## Use it
 
-**Easiest (1.7.0): Phoenix-Launcher.bat.** The new launcher, in Bad Company 2's colours. Start the backend, pick a server
+**Recommended: Phoenix-Classic-Launcher.exe** (called PhoenixLauncher.exe before 1.8.3b) - see "The classic one" below.
+
+**The new one (1.7.0, still has issues): Phoenix-Launcher.bat.** The new launcher, in Bad Company 2's colours. Start the backend, pick a server
 (1 - 4, from BF-Portable's `BFBC2.bat` ... `BFBC2_4.bat`), press **START**: the bots attach by themselves as soon as the
 level is up. It edits each server's map list, sets the bot settings and opens the **3D map + route editor**. The first time,
 check **PATHS** if it can't find your BF-Portable folder.
 
-**The classic one: PhoenixLauncher.exe.** Set the server (BF-Portable's `BFBC2.bat` or the server .exe) and the game once - they
+**The classic one: Phoenix-Classic-Launcher.exe.** Set the server (BF-Portable's `BFBC2.bat` or the server .exe) and the game once - they
 are remembered in `launcher.ini` - choose the bot settings, and press **Start All**: server, bots and (after the delay
 you set) the game. Start Server / Start Bots / Stop Bots / Start Game / Logs are there separately too. Bot settings are
 written into `phoenix.ini`.
@@ -27,6 +29,18 @@ By hand:
 
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
+
+## What changed in 1.8.3b - both launchers in every download (packaging only)
+
+- **The 2.1 release had no launchers.** The programs were left out of the repository, so the release's "Source code"
+  zips had neither the classic launcher nor the bot DLL.
+  - `bin\PhoenixBC2.dll`, `bin\PhoenixAttach.exe` and the classic launcher are now kept in the repository. Every
+    download - the release zip, **Code → Download ZIP** or the "Source code" archives - has them ready to run.
+- **Clear names:**
+  - **Phoenix-Classic-Launcher.exe** is the classic launcher (was `PhoenixLauncher.exe`). It keeps using the same
+    `launcher.ini`, so your paths and settings carry over. **Use this one to play** - the new launcher still has issues.
+  - **Phoenix-Launcher.bat** is the new launcher. Its CLASSIC LAUNCHER button opens the renamed exe.
+- No change to the bots: the DLL is the same 1.8.3 build.
 
 ## What changed in 1.8.3 - rockets on tanks, buggy drivers drive, infantry push to the flags
 

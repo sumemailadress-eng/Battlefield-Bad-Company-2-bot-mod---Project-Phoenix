@@ -21,7 +21,7 @@ function Save-Settings {
     foreach ($k in ($set.Keys | Sort-Object)) { $lines += "$k=$($set[$k])" }
     try { Set-Content $setPath $lines -Encoding ascii } catch {}
 }
-# the old launcher's launcher.ini (PhoenixLauncher.exe) already knows where the server and the game are
+# the old launcher's launcher.ini (Phoenix-Classic-Launcher.exe) already knows where the server and the game are
 $oldIni = Join-Path $PSScriptRoot 'launcher.ini'
 $old = @{}
 if (Test-Path $oldIni) { foreach ($l in Get-Content $oldIni) { if ($l -match '^\s*([A-Za-z0-9]+)\s*=\s*(.*?)\s*$') { $old[$Matches[1]] = $Matches[2] } } }
@@ -1141,7 +1141,7 @@ $ui.BtnLearn.Add_Click({ Safe { $p = Join-Path $PSScriptRoot 'viewer\LearnViewer
 $ui.BtnLog.Add_Click({ Safe { $d = Latest-Report; if ($d -and (Test-Path (Join-Path $d 'runtime.log'))) { Start-Process notepad.exe ('"' + (Join-Path $d 'runtime.log') + '"') } elseif ($d) { Start-Process explorer.exe ('"' + $d + '"') } else { Say 'No bot log yet - it is made when the bots attach.' } } })
 $ui.BtnNav.Add_Click({ Safe { $d = Get-NavDir; if (-not (Test-Path $d)) { New-Item -ItemType Directory -Force $d | Out-Null }; Start-Process explorer.exe ('"' + $d + '"'); Say "navcache: $d (shared by every Phoenix install)" } })
 $ui.BtnIni.Add_Click({ Safe { if (Test-Path $iniPath) { Start-Process notepad.exe ('"' + $iniPath + '"') } } })
-$ui.BtnClassic.Add_Click({ Safe { $p = Join-Path $PSScriptRoot 'PhoenixLauncher.exe'; if (-not (Test-Path $p)) { $p = Join-Path $PSScriptRoot 'bin\PhoenixLauncher.exe' }; if (Test-Path $p) { Start-Process -FilePath $p -WorkingDirectory $PSScriptRoot } } })
+$ui.BtnClassic.Add_Click({ Safe { $p = Join-Path $PSScriptRoot 'Phoenix-Classic-Launcher.exe'; if (-not (Test-Path $p)) { $p = Join-Path $PSScriptRoot 'PhoenixLauncher.exe' }; if (Test-Path $p) { Start-Process -FilePath $p -WorkingDirectory $PSScriptRoot } } })
 $ui.BtnPaths.Add_Click({ Safe {
     $f = Pick-Folder 'The BC2 server folder (the one with BFBC2.bat and Frost.Game.Main_Win32_Final.exe)' $server
     if ($f) { $script:server = $f; $set.ServerDir = $f; if ((Split-Path $f -Leaf) -ieq 'Battlefield_bc2_Server') { $script:Portable = Split-Path $f; $set.Portable = $script:Portable; $script:xampp = Join-Path $Portable 'xampp'; $script:redirDir = Join-Path $Portable 'Redirector'; $script:emuDir = Join-Path $Portable 'BFBC2-EMU' } }

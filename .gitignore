@@ -1,5 +1,9 @@
 # build outputs
-bin/
+# (1.8.3b: bin\PhoenixBC2.dll, bin\PhoenixAttach.exe and Phoenix-Classic-Launcher.exe are kept in the repo so
+#  every download has the programs)
+bin/*
+!bin/PhoenixBC2.dll
+!bin/PhoenixAttach.exe
 harness/phoenix_harness
 /PhoenixLauncher.exe
 *.o

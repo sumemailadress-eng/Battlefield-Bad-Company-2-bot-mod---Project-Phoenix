@@ -18,5 +18,5 @@ echo "built bin/PhoenixBC2.dll"
 # the launcher (Windows GUI); copy it next to Start-Bots.bat
 "$CLANG" --target=i686-pc-windows-msvc -fms-runtime-lib=static -O2 -std=gnu11 -D_WIN32_WINNT=0x0601 -D_CRT_SECURE_NO_WARNINGS -DUNICODE -D_UNICODE \
   -fuse-ld=lld -Wl,/SUBSYSTEM:WINDOWS -Wl,/ENTRY:wWinMainCRTStartup runtime/launcher.c \
-  -lcomdlg32 -lshell32 -lws2_32 -ladvapi32 -luser32 -lgdi32 -lkernel32 -o bin/PhoenixLauncher.exe
-echo "built bin/PhoenixLauncher.exe"
+  -lcomdlg32 -lshell32 -lws2_32 -ladvapi32 -luser32 -lgdi32 -lkernel32 -o Phoenix-Classic-Launcher.exe
+echo "built Phoenix-Classic-Launcher.exe"

@@ -9,4 +9,4 @@ $CC -O2 -std=gnu11 -D_WIN32_WINNT=0x0601 -municode -static runtime/attach.c runt
 # Offline harness (Linux): fake BC2 server + game simulation driving the real runtime logic
 gcc -O2 -std=gnu11 -DPHX_HARNESS -Iharness -Isrc -Iruntime -w harness/harness_main.c harness/mock_engine.c runtime/world.c runtime/bots.c runtime/learn.c runtime/indoor.c runtime/turret.c runtime/navglue.c runtime/roads.c runtime/routenet.c src/nav.c src/bc2_observe.c -lm -o harness/phoenix_harness
 # Launcher (Windows GUI): paths, bot settings, Start All
-$CC -O2 -std=gnu11 -D_WIN32_WINNT=0x0601 -municode -mwindows -static runtime/launcher.c -lcomdlg32 -lshell32 -lws2_32 -ladvapi32 -o PhoenixLauncher.exe
+$CC -O2 -std=gnu11 -D_WIN32_WINNT=0x0601 -municode -mwindows -static runtime/launcher.c -lcomdlg32 -lshell32 -lws2_32 -ladvapi32 -o Phoenix-Classic-Launcher.exe
