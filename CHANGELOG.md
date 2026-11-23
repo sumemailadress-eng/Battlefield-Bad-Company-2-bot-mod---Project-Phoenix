@@ -30,6 +30,29 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.8.4 - Rush defending, tank fights, idle guns, trapped soldiers
+
+From the 1.8.2 Port Valdez log and the Rush simulator.
+- **Rush: defenders go for an armed M-COM.**
+  - In the simulator, defenders were 100-200 m away when an M-COM was armed. They stopped to trade shots on the way
+    and never once got there inside the 25 s fuse.
+  - Now every defender of an armed M-COM runs to it, sprinting when no enemy is close and firing on the move, and
+    defuses it.
+  - Attackers at an M-COM (not yet armed) pull up to 8 of its defenders from 250 m, so its guards are not wiped out
+    one by one. Guards also stand less while an attacker is at their M-COM.
+  - The log says where the defenders were when an M-COM was armed ("objectives: M-COM A armed - defenders ...").
+- **Tanks fight enemy tanks instead of driving round them.** In the live log an Abrams and a T-90 met on the road,
+  each "can't get past the stopped" other, re-routed and drove off. A vehicle with an enemy crew is no longer treated
+  as traffic - no waiting, going round or re-routing for it.
+- **Stationary guns:**
+  - A bot gets on a stationary gun only when the gun can see an enemy (not just one within 220 m behind a hill).
+  - After leaving a gun with nothing to shoot, it does not get back on that gun for 3 minutes. Live, one bot got on
+    and off the same gun every minute (27 times in the round).
+- **Trapped soldiers respawn.** A bot that "can't get through" the same spot a second time within ~3 minutes is
+  redeployed instead of being sent to another flag. Live, one bot logged it 4 times within 3 m and never got out.
+- Build: the DLL is built with clang + lld again, as before 1.8.3b.
+- Harness against 1.8.3 (Conquest, Rush and tank games, 8 seeds each): no regressions; ASan clean.
+
 ## What changed in 1.8.3b - both launchers in every download (packaging only)
 
 - **The 2.1 release had no launchers.** The programs were left out of the repository, so the release's "Source code"

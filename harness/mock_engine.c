@@ -527,6 +527,13 @@ static void build_level(void)
         uint32_t d = alloc(0x80); W(s + 0xc, d); res_add(d);
         uint32_t e = R(spawnMgr + 0xc); W(e, s); W(spawnMgr + 0xc, e + 4); spawnN++;
     }
+    if (getenv("RUSH") && getenv("RUSHFWD")) {   /* 1.8.4: like BC2 Rush, the defenders' spawns sit behind the stage's M-COMs */
+        float fs[2][2] = {{90, 30}, {100, -40}};
+        for (int i = 0; i < 2; i++) { float x = fs[i][0], z = fs[i][1];
+            uint32_t s = entity_new(0x40, 0x1234, x, terrain(x, z), z); W(s + 0x2c, 2u);
+            uint32_t d = alloc(0x80); W(s + 0xc, d); res_add(d);
+            uint32_t e = R(spawnMgr + 0xc); W(e, s); W(spawnMgr + 0xc, e + 4); spawnN++; }
+    }
     float fl[5][2] = {{-180, -60}, {-60, 90}, {0, 0}, {70, -95}, {190, 60}};
     const char *names[5] = {"Docks", "Church", "Square", "Factory", "Bridge"};
     mcomN = 0;
