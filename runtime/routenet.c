@@ -186,7 +186,7 @@ static void build_graph(void)
         if (k) gedge(ids[i][k - 1], ids[i][k], d2(g_v[i].pts[k - 1], g_v[i].pts[k]));
     }
     /* route ends that stop on another route's line (between two of its points): joined to both points */
-    int joined = 0;
+    int joined = 0, gapLinks = 0;
     for (int i = 0; i < g_vn; i++) for (int e = 0; e < 2; e++) {
         const float *p = e ? g_v[i].pts[g_v[i].n - 1] : g_v[i].pts[0]; int pid = e ? ids[i][g_v[i].n - 1] : ids[i][0];
         int bj = -1, bk = 0; float bd = 8.0f;   /* 1.7.9: 8 m (was 4) - a branch drawn stopping a little short of the road (FloodBots / ThugBot 0.4.8) */
@@ -197,7 +197,18 @@ static void build_graph(void)
                 float q[3] = {a[0] + sx * t, a[1] + (b[1] - a[1]) * t, a[2] + sz * t}, d = d2(q, p);
                 if (d < bd && fabsf(q[1] - p[1]) < 3.0f) { bd = d; bj = j; bk = k; }
             } }
-        if (bj < 0) continue;
+        if (bj < 0) {
+            /* 1.8.4: a route drawn ending 8-20 m short of another road (the user's maps have eight of them) is linked to it
+               too, at twice the cost plus 10 m, so a driver changes roads there only when it saves a real detour instead of
+               driving to the end, leaving the road network and heading across country */
+            int shared = 0; for (int j = 0; j < g_vn && !shared; j++) if (j != i) for (int k = 0; k < g_v[j].n; k++) if (ids[j][k] == pid) { shared = 1; break; }
+            if (shared) continue;
+            float gd = 20.0f; int gj = -1, gk = 0;
+            for (int j = 0; j < g_vn; j++) { if (j == i) continue;
+                for (int k = 0; k < g_v[j].n; k++) { float d = d2(g_v[j].pts[k], p); if (d < gd && fabsf(g_v[j].pts[k][1] - p[1]) < 4.0f) { gd = d; gj = j; gk = k; } } }
+            if (gj >= 0 && ids[gj][gk] != pid) { gedge(pid, ids[gj][gk], gd * 2 + 10); gapLinks++; }
+            continue;
+        }
         int na = ids[bj][bk - 1], nb = ids[bj][bk];
         if (na != pid && nb != pid) { gedge(pid, na, d2(p, g_v[bj].pts[bk - 1]) + bd); gedge(pid, nb, d2(p, g_v[bj].pts[bk]) + bd); joined++; }
     }
@@ -230,7 +241,7 @@ static void build_graph(void)
     static int fill[RN_GMAX]; memcpy(fill, g_gStart, sizeof(int) * (size_t)g_gn);
     for (int e = 0; e < g_ge; e++) { g_gAdj[fill[g_ga[e]]] = g_gb[e]; g_gAdjW[fill[g_ga[e]]++] = g_gw[e]; g_gAdj[fill[g_gb[e]]] = g_ga[e]; g_gAdjW[fill[g_gb[e]]++] = g_gw[e]; }
     int forks = 0; for (int i = 0; i < g_gn; i++) if (g_gStart[i + 1] - g_gStart[i] >= 3) forks++;
-    if (g_vn) rt_log("routes: vehicle road network - %d route(s) as %d point(s), %d fork(s) and junction(s), %d route end(s) joined to the road they meet, %d crossing link(s)", g_vn, g_gn, forks, joined, crossed);
+    if (g_vn) rt_log("routes: vehicle road network - %d route(s) as %d point(s), %d fork(s) and junction(s), %d route end(s) joined to the road they meet, %d crossing link(s), %d short gap(s) to another road linked", g_vn, g_gn, forks, joined, crossed, gapLinks);
     memset(g_jam, 0, sizeof g_jam);
 }
 /* 1.7.7: closed stretches - nodes within the radius of a spot where a road was found blocked, for RN_BLOCK_S seconds */

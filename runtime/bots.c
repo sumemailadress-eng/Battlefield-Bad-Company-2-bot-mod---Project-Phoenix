@@ -65,7 +65,7 @@ typedef struct Bot {
     uint32_t vehicle; int seat, vehRole; double vehSince, vehCheckAt, vehEnterUntil, vehProgressAt; float vehProgressDist;
     int hState; double hStateAt, fireUntil, shootAt; float hBias, hPrevY, hPrevPitch, hPrevRoll, hPrevHeading, hPrevPos[3], hAlt, hLand[3]; int hHaveLand, hFlag; double hLoiterUntil; float hOrbit;
     float tPush; int tStage, tAct, tCand, gunner, runOut, tBase, tVerOk, tTgtVeh, aimOwned, tLogged; float tBaseYaw, tBasePitch, tPrevRel, viewOffY, viewOffP; uint32_t tVerVeh, tTgtRef; float tVerRel0, tVerExp, tIy, tIp; double tAt, engageUntil, engageCool, hullUntil; float tD1, tPrevPos[3], tSpeed, tTarget[3];
-    int hasAT, hasGL, atOn, atHeli, atGL, atLight; double rocketRegenAt; uint32_t atVeh, atSkipVeh, emplSkipEnt; double emplSkipUntil, trapAt; float trapPos[3]; double atSince, atSkipUntil; double atAt, atUntil, atPrevAt; float atPt[3], atPrev[3], atVel[3];
+    int hasAT, hasGL, atOn, atHeli, atGL, atLight; double rocketRegenAt; int vgCat; double vFireAt; uint32_t atVeh, atSkipVeh, emplSkipEnt; double emplSkipUntil, trapAt; float trapPos[3]; double atSince, atSkipUntil; double atAt, atUntil, atPrevAt; float atPt[3], atPrev[3], atVel[3];
     double svAt, rushUntil, supplyAt; float pvPrevHeading, pvPrevErr, pvPrevThr, hNoTurn; double swimAt; uint32_t svRef; float svPrev[3], svVel[3];
     double exitBlockUntil, doorAt, avoidAt, wiggleUntil; int airHoldLogged, crewBoard, revCount, airOn, airLogged; double airAt, airSeenAt, tgtSeenAt; float airPt[3], airPrev[3], airVel[3], tgtPrev[3], tgtVel[3]; float stuckTime, avoidBias, frontClear, revSpot[3];
     uint32_t lastVeh; int exitFails; double vehZoneAt, vehWaitUntil, vehParkAt; float steerSign; int steerCalib; float calibStartHeading, calibStart[3]; double calibAt; double reverseUntil;
@@ -515,6 +515,7 @@ enum { OBJ_NONE, OBJ_ATTACK, OBJ_GUARD, OBJ_PATROL, OBJ_DEFEND };
 enum { VR_NONE, VR_DRIVER, VR_PASSENGER, VR_GUNNER };   /* VR_GUNNER: a stationary weapon (1.5) */
 static const char *role_name(int r) { static const char *n[] = {"none", "attack", "guard", "patrol", "defend"}; return r >= 0 && r < 5 ? n[r] : "?"; }
 static double g_directorAt;
+static double g_vgFire[5]; static int g_vgKill[5];   /* 1.8.4: vehicle guns per minute (see vehicle_shoot) */
 static int g_atFired[2];   /* 1.8.3: rockets / 40 mm fired since the last minute summary */
 static int enemy_armour(int team);
 static uint32_t g_cpEntity[MAX_CPS]; static int g_cpPrevOwner[MAX_CPS]; static double g_cpLostAt[3][MAX_CPS];
@@ -572,7 +573,11 @@ static void director_update(double now)
       if (now >= sumAt) { sumAt = now + 60;
           if (g_atFired[0] || g_atFired[1]) rt_log("combat: last minute %d rocket(s) and %d 40 mm grenade(s) fired at enemy vehicles; crewed enemy armour: team 1 faces %d, team 2 faces %d",
                                                    g_atFired[0], g_atFired[1], enemy_armour(1), enemy_armour(2));
-          g_atFired[0] = g_atFired[1] = 0; } }
+          g_atFired[0] = g_atFired[1] = 0;
+          if (g_vgFire[0] + g_vgFire[1] + g_vgFire[2] + g_vgFire[3] + g_vgFire[4] > 1)
+              rt_log("combat: last minute vehicle guns firing (s) / soldiers killed - main guns %.0f/%d, machine guns aimed %.0f/%d, machine guns firing where they look %.0f/%d, stationary guns %.0f/%d, helicopters %.0f/%d",
+                     g_vgFire[0], g_vgKill[0], g_vgFire[1], g_vgKill[1], g_vgFire[2], g_vgKill[2], g_vgFire[3], g_vgKill[3], g_vgFire[4], g_vgKill[4]);
+          memset(g_vgFire, 0, sizeof g_vgFire); memset(g_vgKill, 0, sizeof g_vgKill); } }
     /* 1.8.4: when an M-COM is armed, where are its defenders? (live diagnosis for defusing) */
     { static int wasArmed[MAX_CPS];
       for (int f = 0; f < nf && f < MAX_CPS; f++) { CapturePoint *cp = &g_world.cps[f]; int a = cp->isObj && cp->armed;
@@ -1670,13 +1675,16 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
     if (t->state) { if (b->tStage) turret_release(b); return t->state > 0 ? t : NULL; }
     /* 1.8.3: a light vehicle's driver has no gun (live: 'Cav' counted as armour - its driver ran the turret test again
        and again, sitting still in the seat each time, and blocked every other vehicle's test meanwhile) */
-    if (seat == 0 && vi->kind != VK_HELI && !veh_armoured(vi->name) && !veh_aa(vi->name)) {
+    /* (1.8.4: not a stationary gun - its seat 0 is the gunner; 1.8.3 skipped their test too) */
+    if (seat == 0 && vi->kind != VK_HELI && vi->kind != VK_EMPLACE && !veh_armoured(vi->name) && !veh_aa(vi->name)) {
         t->state = -1; rt_log("vehicles: '%s' seat 0 - light vehicle, the driver just drives (no turret test)", vi->name[0] ? vi->name : "?"); return NULL; }
     if (now < t->retryAt) return NULL;   /* 1.8.0: a failed test is tried again later (on another vehicle, after a pause) */
     int me = (int)(b - g_bots);
     if (g_turOwner >= 0 && g_turOwner != me && now - g_turOwnerAt < 40 && g_bots[g_turOwner].used && g_bots[g_turOwner].vehicle) return NULL;   /* someone else is testing */
     int heli = vi->kind == VK_HELI;
     if (!heli && seat == 0 && b->tSpeed > 1.5f) { if (b->tStage > 1) b->tStage = 1; return NULL; }   /* a driver tests standing still; gunners also on the move */
+    /* 1.8.4: a gunner seat's re-test waits for a slow moment (up to a minute): a bouncing hull hides a turning MG */
+    if (!heli && seat == 1 && t->fails > 0 && b->tSpeed > 2.5f && now - t->retryAt < 60) { if (b->tStage > 1) b->tStage = 1; return NULL; }
     if (heli) { const DriveCalib *hc = calib_for(vi->data, 0); if (!hc || hc->ok <= 0) return NULL; }   /* helicopters: after the pilot's own test */
     if (g_turOwner != me) { g_turOwner = me; g_turOwnerAt = now; b->tStage = 0; tur_done(); }
     /* live 1.2: the Abrams, T-90 and AH-64 gunner turrets turn with Roll and elevate with Pitch - tried first */
@@ -1687,7 +1695,7 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
     switch (b->tStage) {
     case 0: case 1: {
         int r = tur_search(vi->entity, vi->pos, 120);
-        if (r < 0) { if (++t->fails >= 3 || !(seat == 0 && veh_armoured(vi->name))) t->state = -1; else t->retryAt = now + 45; rt_log("vehicles: '%s' seat %d - no turret transform found (%s)", vi->name, seat, t->state ? (seat == 0 && !heli ? "the driver will turn the hull at targets" : "gunner fires where it looks") : "tried again later"); turret_release(b); return NULL; }
+        if (r < 0) { if (++t->fails >= 3 || !((seat == 0 && veh_armoured(vi->name)) || (seat == 1 && !heli))) t->state = -1; else t->retryAt = now + 45; rt_log("vehicles: '%s' seat %d - no turret transform found (%s)", vi->name, seat, t->state ? (seat == 0 && !heli ? "the driver will turn the hull at targets" : "gunner fires where it looks") : "tried again later"); turret_release(b); return NULL; }
         if (r == 0) { b->tStage = 1; return NULL; }
         t->havePitch = 0; t->pitchOff = 0;   /* (a re-test starts clean: 1.7.9 kept the last test's elevation part) */
         if (!b->tLogged++) rt_log("vehicles: '%s' seat %d - %d candidate transform(s), testing the turret inputs", vi->name, seat, r);
@@ -1708,7 +1716,9 @@ static TurretCal *turret_think(Bot *b, double now, const VehicleInfo *vi, int se
         if (yl[b->tAct] < 0) {
             /* 1.8.0: three tries before giving up on the seat for the round (live: the Abrams's main gun failed once - a
                moving or shaken vehicle - and its driver turned the hull at targets for the rest of the round) */
-            if (++t->fails >= 3 || !(seat == 0 && veh_armoured(vi->name))) t->state = -1; else t->retryAt = now + 45;   /* (a tank's or IFV's main gun only) */
+            /* (a tank's or IFV's main gun; 1.8.4: and a ground vehicle's machine-gun seat (seat 1) - live 1.8.2, every T-90 and
+               Abrams MG seat failed one test, tested on the move, and fired blind for the rest of the round) */
+            if (++t->fails >= 3 || !((seat == 0 && veh_armoured(vi->name)) || (seat == 1 && !heli))) t->state = -1; else t->retryAt = now + 45;
             rt_log("vehicles: '%s' seat %d - no input turned a turret%s", vi->name, seat, t->state ? "" : " - tried again later");
             turret_release(b); return NULL; }
         b->tStage = 3; b->tAt = now; return NULL;
@@ -1798,7 +1808,26 @@ static int veh_test_running(uint32_t veh, const Bot *b)
 {
     return g_turOwner >= 0 && g_turOwner != (int)(b - g_bots) && g_bots[g_turOwner].used && g_bots[g_turOwner].vehicle == veh && g_bots[g_turOwner].tStage > 1;
 }
+/* 1.8.4: what the vehicle guns did, per minute in the log: 0 tank/IFV main gun, 1 machine-gun / gunner seat with a
+   calibrated turret, 2 gunner seat firing where it looks (no turret found), 3 stationary gun, 4 helicopter */
+static int vehicle_shoot_inner(Bot *b, double now, const VehicleInfo *vi, int seat, int steerAct, float flip);
 static int vehicle_shoot(Bot *b, double now, const VehicleInfo *vi, int seat, int steerAct, float flip)
+{
+    /* a soldier we shot at in the last 1.5 s is down: ours */
+    if (b->tTgtRef && !b->tTgtVeh && now - b->vFireAt < 1.5)
+        for (int i = 0; i < g_world.obs.count; i++) { const BC2ObservedPlayer *op = &g_world.obs.players[i];
+            if (op->pointer == b->tTgtRef) { if (op->health <= 0 || !op->soldierValid) { g_vgKill[b->vgCat]++; b->tTgtRef = 0; b->vFireAt = 0; } break; } }
+    int r = vehicle_shoot_inner(b, now, vi, seat, steerAct, flip);
+    if (b->levels[BC2_EiaFire] > 0 && r) {
+        const TurretCal *t = turcal_for(vi->data, seat, 0);
+        int cat = vi->kind == VK_HELI ? 4 : vi->kind == VK_EMPLACE ? 3 : (seat == 0 && veh_armoured(vi->name)) ? 0 : (t && t->state > 0) ? 1 : 2;
+        static double last[MAX_BOTS]; int me = (int)(b - g_bots); double d = now - last[me]; last[me] = now;
+        if (d > 0 && d < 0.2) g_vgFire[cat] += d;
+        b->vgCat = cat; b->vFireAt = now;
+    }
+    return r;
+}
+static int vehicle_shoot_inner(Bot *b, double now, const VehicleInfo *vi, int seat, int steerAct, float flip)
 {
     /* speed of the vehicle (turret test waits for a stop on the ground) */
     { float d = dist3(vi->pos, b->tPrevPos); memcpy(b->tPrevPos, vi->pos, 12); b->tSpeed = b->tSpeed * 0.8f + fminf(d * 30.0f, 40) * 0.2f; }
@@ -2507,7 +2536,11 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
         }
         float down[3] = {vi.pos[0], vi.pos[1] - 5.0f, vi.pos[2]}, up[3] = {vi.pos[0], vi.pos[1] + 0.5f, vi.pos[2]}, hh[3], nn[3];
         if (driver && !eng_ray(up, down, hh, nn)) { b->vehProgressAt = now; return; }   /* airborne: stay in */
-        if (f < 0 || distFlag < (vi.kind == VK_HELI ? 110 : 55)) { vehicle_leave(b, now, "close to the flag"); return; }
+        /* 1.8.4: the machine gunner of a crewed ground vehicle stays on its gun at the flag (it covers the capture and
+           the crew captures from inside); other passengers get out there as before */
+        int keepGun = 0;
+        if (vi.kind == VK_GROUND && driver && b->seat == 1) { const TurretCal *gt = turcal_for(vi.data, 1, 0); keepGun = veh_armoured(vi.name) || (gt && gt->state > 0); }
+        if (f < 0 || (!keepGun && distFlag < (vi.kind == VK_HELI ? 110 : 55))) { vehicle_leave(b, now, "close to the flag"); return; }
         if (vi.kind == VK_HELI && driver) {   /* a bot pilot that has landed is dropping us off */
             for (int k = 0; k < MAX_BOTS; k++) if (g_bots[k].used && g_bots[k].player == driver && g_bots[k].hState == HS_GROUND) { vehicle_leave(b, now, "dropped off"); return; }
         }
@@ -2581,7 +2614,23 @@ static void vehicle_brain(Bot *b, double now, float dt, uint32_t veh)
     b->vehZoneAt = 0;
     /* the drivable route ends short of the flag (it is in a building, up stairs, off-road): park there and walk */
     if (b->pathLen && !b->pathPartial && b->pathIdx >= b->pathLen - 1 && !b->pathPending && dist2d(vi.pos, &b->path[(b->pathLen - 1) * 3]) < 8 && distFlag < 60) {
-        veh_hold(b, calib_for(vi.data, 0)); if (!b->vehParkAt) b->vehParkAt = now + 2;
+        veh_hold(b, calib_for(vi.data, 0));
+        /* 1.8.4: a tank or IFV does not get abandoned at the end of the road (live: a T-90 driver parked 50 m from its flag
+           and walked off, leaving the tank to the enemy) - it holds there, its guns covering the flag, for up to 45 s, then
+           drives on to another flag; light vehicles are left as before */
+        if (veh_armoured(vi.name) && vi.kind == VK_GROUND) {
+            if (!b->vehParkAt) b->vehParkAt = now + 45;
+            b->vehProgressAt = now;
+            if (now > b->vehParkAt || cp->owner == b->team) {
+                int nf2 = veh_next_flag(b, vi.pos, f, 1); b->vehParkAt = 0;
+                if (nf2 >= 0 && nf2 != f) {
+                    static int pl; if (pl++ < 30 || g_cfg.verbose) rt_log("vehicles: %s keeps '%s' and drives on to %s (its road ends short of %s)", b->name, vi.name, g_world.cps[nf2].name, cp->name);
+                    assign(b, nf2, g_world.cps[nf2].owner != b->team ? OBJ_ATTACK : OBJ_PATROL, now); b->pathLen = 0; b->pathAt = 0; b->vehZoneAt = 0; b->vehProgressDist = 1e30f;
+                } else vehicle_leave(b, now, "end of the drivable route - on foot from here");
+            }
+            return;
+        }
+        if (!b->vehParkAt) b->vehParkAt = now + 2;
         if (now > b->vehParkAt) vehicle_leave(b, now, "end of the drivable route - on foot from here");
         return;
     }

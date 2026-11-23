@@ -30,6 +30,33 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.8.5 - road to road, machine guns, tanks keep their tanks
+
+- **Stationary guns are aimed again.** 1.8.3's "a light vehicle's driver has no gun" rule also caught stationary guns
+  (their gunner sits in seat 0 and they are not armour), so their turret test was skipped and they fired where the
+  gunner looked. Stationary guns (MGs, TOW, Kornet, Zu-23) are tested and aimed as before 1.8.3.
+- **Vehicle machine guns get more than one chance.**
+  - Live 1.8.2, the Abrams and T-90 machine-gun seats each failed their only turret test, run while the tank was
+    driving, and fired blind for the rest of the round.
+  - Seat 1 (the machine gun) of a ground vehicle is now tested again up to twice, 45 s apart, and a re-test waits up to
+    a minute for the vehicle to slow down.
+- **The machine gunner stays on the gun at the flag.** The gunner of a tank or IFV, or of a vehicle whose machine gun is
+  working, no longer jumps out 55 m from the flag with the other passengers. It keeps covering the flag while the crew
+  captures from inside. Other passengers still get out there.
+- **Tanks are not abandoned at the end of a road.** Live, a T-90 driver parked 50 m from its flag where the road ended
+  and walked off. A tank or IFV now holds there, covering the flag, for up to 45 s (less once the flag is taken), then
+  drives on to another flag. Light vehicles are left there as before.
+- **Road to road.**
+  - A route drawn ending 8-20 m short of another road is now linked to that road. The drawn routes have 9 of these
+    across 7 maps.
+  - Changing roads there costs twice the gap plus 10 m, so a driver uses the link only when it saves a real detour.
+    Before, it drove to the end of the road and headed across country.
+- **Log:** a per-minute line of vehicle gun use - seconds firing and soldiers killed for main guns, machine guns
+  aimed, machine guns firing where they look, stationary guns and helicopters. The next log shows which guns are
+  working.
+- Harness against 1.8.4 (Conquest, Rush, tank games, 8 seeds each): within the usual spread; ASan clean (also
+  building the road network of every shipped map).
+
 ## What changed in 1.8.4 - Rush defending, tank fights, idle guns, trapped soldiers
 
 From the 1.8.2 Port Valdez log and the Rush simulator.

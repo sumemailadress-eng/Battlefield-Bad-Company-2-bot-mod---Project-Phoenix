@@ -28,6 +28,11 @@ extern int sim_kills[3], sim_deaths[3], sim_captures[3];
 
 int main(int argc, char **argv)
 {
+    if (getenv("RNTEST")) {   /* 1.8.4: build the vehicle road network of each map key in RNTEST (comma list) and stop */
+        int rn_test_load(const char *key); char keys[512]; snprintf(keys, sizeof keys, "%s", getenv("RNTEST"));
+        for (char *k = strtok(keys, ","); k; k = strtok(NULL, ",")) { printf("%s: ", k); rn_test_load(k); }
+        return 0;
+    }
     double seconds = argc > 1 ? atof(argv[1]) : 300;
     if (argc > 2) g_cfg.navBuild = atoi(argv[2]);
     if (argc > 3) rng = (uint32_t)atoi(argv[3]);
