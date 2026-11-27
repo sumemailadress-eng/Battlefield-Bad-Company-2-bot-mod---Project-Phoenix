@@ -3,14 +3,16 @@
 #   - Servers 1 - 4 (BF-Portable's BFBC2.bat ... BFBC2_4.bat): start / stop each, bots on or off per server (Phoenix is
 #     attached to the server process once its level is up), and each server's maplist.txt (BC2: one mode per list)
 #   - the bot settings in phoenix.ini (shared by all servers, read when the bots attach)
-#   - tools: the 3D map and route editor (tools\Map3D, needs Node.js), LearnViewer, the bot log, PLAY (starts BC2)
+#   - tools: the 3D map and route editor (tools\Map3D, needs Node.js), LearnViewer, the bot log
+#   - PLAY BAD COMPANY 2 (1.8.6): starts the backend, updates the game's LAN files from BF-Portable's Client-Files\BFBC2,
+#     starts the selected server if none is running, then the game
 # Run Phoenix-Launcher.bat. PHOENIX_LAUNCHER_TEST=1: reads everything and prints what it found, starts nothing.
 # Bad Company 2 is Frostbite 1.5: its own server exe (Frost.Game.Main_Win32_Final.exe), its own RCON commands
 # (admin.runNextLevel, admin.restartMap, mapList.nextLevelIndex - not the BF3 / BF4 / Hardline ones) and its own
 # map list format (a mode line, then "Levels/<map> <rounds>").
 param([string]$Portable = '')
 $ErrorActionPreference = 'Continue'
-$Version = '1.8.5'
+$Version = '1.8.6'
 
 # ---------------------------------------------------------------- launcher settings
 $setPath = Join-Path $PSScriptRoot 'Phoenix-Launcher.ini'
@@ -26,6 +28,21 @@ $oldIni = Join-Path $PSScriptRoot 'launcher.ini'
 $old = @{}
 if (Test-Path $oldIni) { foreach ($l in Get-Content $oldIni) { if ($l -match '^\s*([A-Za-z0-9]+)\s*=\s*(.*?)\s*$') { $old[$Matches[1]] = $Matches[2] } } }
 
+# 1.8.6: a freshly extracted package has neither ini - take the paths from the newest earlier Phoenix install next to it
+# (Downloads\...\Project-Phoenix-BC2-<ver>-Bots\Project-Phoenix-BC2-<ver>-Bots\), so nothing has to be set up again
+if (-not $old.GamePath -or -not $old.ServerPath) {
+    $cands = @()
+    foreach ($up in @((Split-Path $PSScriptRoot), (Split-Path (Split-Path $PSScriptRoot)))) {
+        if (-not $up -or -not (Test-Path $up)) { continue }
+        $cands += @(Get-ChildItem -Path $up -Filter 'launcher.ini' -Recurse -Depth 2 -ErrorAction SilentlyContinue | Where-Object { $_.DirectoryName -ne $PSScriptRoot -and $_.DirectoryName -match 'Phoenix' })
+    }
+    $prev = $cands | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($prev) {
+        foreach ($l in Get-Content $prev.FullName) { if ($l -match '^\s*([A-Za-z0-9]+)\s*=\s*(.*?)\s*$' -and $Matches[2] -and -not $old[$Matches[1]]) { $old[$Matches[1]] = $Matches[2] } }
+        $prevNew = Join-Path $prev.DirectoryName 'Phoenix-Launcher.ini'
+        if (Test-Path $prevNew) { foreach ($l in Get-Content $prevNew) { if ($l -match '^\s*(Portable|ServerDir|Game)\s*=\s*(.+?)\s*$' -and -not $set[$Matches[1]]) { $set[$Matches[1]] = $Matches[2] } } }
+    }
+}
 if (-not $Portable) { $Portable = $set.Portable }
 if (-not $Portable -and $old.ServerPath) { $Portable = Split-Path (Split-Path $old.ServerPath) }
 if (-not $Portable) { foreach ($d in 'C:', 'D:', 'E:', 'F:') { if (Test-Path "$d\BF-Portable\Battlefield_bc2_Server") { $Portable = "$d\BF-Portable"; break } } }
@@ -35,6 +52,16 @@ if (-not $server -and $old.ServerPath) { $server = Split-Path $old.ServerPath }
 if (-not $server) { $server = Join-Path $Portable 'Battlefield_bc2_Server' }
 $gameExe = $set.Game
 if (-not $gameExe -and $old.GamePath) { $gameExe = $old.GamePath }
+if (-not $gameExe -or -not (Test-Path $gameExe)) {   # 1.8.6: the install the EA / Origin / Steam installer registered
+    $found = $null
+    foreach ($k in 'HKLM:\SOFTWARE\WOW6432Node\EA Games\Battlefield Bad Company 2', 'HKLM:\SOFTWARE\EA Games\Battlefield Bad Company 2', 'HKLM:\SOFTWARE\WOW6432Node\Electronic Arts\EA Games\Battlefield Bad Company 2') {
+        try { $r = Get-ItemProperty $k -ErrorAction Stop; foreach ($v in 'Install Dir', 'InstallDir', 'GameDir') { if ($r.$v -and (Test-Path (Join-Path $r.$v 'BFBC2Game.exe'))) { $found = Join-Path $r.$v 'BFBC2Game.exe'; break } } } catch {}
+        if ($found) { break }
+    }
+    if (-not $found) { foreach ($d in "${env:ProgramFiles(x86)}\Steam\steamapps\common\Battlefield Bad Company 2", "${env:ProgramFiles(x86)}\Origin Games\Battlefield Bad Company 2", "${env:ProgramFiles(x86)}\EA Games\Battlefield Bad Company 2") { if ($d -and (Test-Path (Join-Path $d 'BFBC2Game.exe'))) { $found = Join-Path $d 'BFBC2Game.exe'; break } } }
+    if ($found) { $gameExe = $found }
+}
+$gameArgs = $(if ($old.GameArgs) { $old.GameArgs } else { '' })
 $xampp = Join-Path $Portable 'xampp'
 $redirDir = Join-Path $Portable 'Redirector'
 $emuDir = Join-Path $Portable 'BFBC2-EMU'
@@ -222,6 +249,8 @@ $services = [ordered]@{
 }
 function Svc-Running($key) { [bool](Get-Process $services[$key].Proc -ErrorAction SilentlyContinue) }
 function Has-Web { Test-Path (Join-Path $xampp 'apache\bin\httpd.exe') }
+# Apache is started only when the classic launcher's backend list has it (BC2 does not need it)
+function Want-Web { foreach ($k in 'Service1Path', 'Service2Path', 'Service3Path') { if ($old[$k] -match '(?i)apache|httpd') { return $true } }; return ($set.StartWeb -eq '1') }
 
 # ---------------------------------------------------------------- phoenix.ini (shared by all servers)
 function Ini-Get([string]$key, [string]$def) {
@@ -254,6 +283,9 @@ if ($env:PHOENIX_LAUNCHER_TEST -eq '1') {
     foreach ($k in $services.Keys) { Write-Host ("{0}: {1}" -f $services[$k].Name, $(if (Svc-Running $k) { 'running' } else { 'off' })) }
     Write-Host "phoenix.ini: BotsPerTeam=$(Ini-Get 'BotsPerTeam' '15') Difficulty=$(Ini-Get 'Difficulty' '2') Vehicles=$(Ini-Get 'Vehicles' '2') Routes=$(Ini-Get 'Routes' '1') AutoRoutes=$(Ini-Get 'AutoRoutes' '1')"
     Write-Host "navcache: $(Get-NavDir)"
+    $cf = Join-Path $Portable 'Client-Files\BFBC2'
+    if ($gameExe -and (Test-Path $cf)) { $gd = Split-Path $gameExe; Write-Host ("game LAN files: " + (@('BC2LAN.exe', 'dinput8.dll', 'bfbc2.ini') | ForEach-Object { "$_ $(if (Test-Path (Join-Path $gd $_)) { 'present' } else { 'MISSING' })" }) -join ', ') }
+    Write-Host "web server started with the backend: $(Want-Web)   redirector via: $(if (Test-Path (Join-Path $redirDir 'Redirector.cmd')) { 'Redirector.cmd' } else { 'gosredirector.ea.com.exe /console' })"
     Write-Host "PhoenixAttach: $(Test-Path $attachExe)   3D map: $(Test-Path (Join-Path $map3dDir 'server.js'))   node: $([bool](Get-Command node -ErrorAction SilentlyContinue))"
     return
 }
@@ -663,26 +695,45 @@ function Start-Svc([string]$key) {
             Say 'MySQL did not come up (see xampp\mysql\data\mysql_error.log).'; return $false
         }
         'web' {
+            # 1.8.6: optional - BF-Portable's BC2 emulator does not need Apache (http_enabled=false), and the classic
+            # launcher never started it. Only started when launcher.ini lists apache_start.bat; a failure is not fatal.
             $exe = Join-Path $xampp 'apache\bin\httpd.exe'
-            if (-not (Test-Path $exe)) { return $true }   # (BF-Portable's BC2 setup works without it)
+            if (-not (Test-Path $exe) -or -not (Want-Web)) { return $true }
             Say 'Starting the web server...'
-            Start-Process -FilePath $exe -WorkingDirectory $xampp -WindowStyle Hidden | Out-Null
-            Wait-Ms 1200; return (Svc-Running 'web')
+            $bat = Join-Path $xampp 'apache_start.bat'
+            if (Test-Path $bat) { Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'apache_start.bat' -WorkingDirectory $xampp -WindowStyle Minimized | Out-Null }
+            else { Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -WindowStyle Hidden | Out-Null }
+            for ($i = 0; $i -lt 10 -and -not (Svc-Running 'web'); $i++) { Wait-Ms 400 }
+            if (-not (Svc-Running 'web')) { Say 'The web server did not start (not needed for BC2) - carrying on.' }
+            return $true
         }
         'redir' {
-            $exe = Join-Path $redirDir 'gosredirector.ea.com.exe'
+            # 1.8.6: started the way the classic launcher does it - BF-Portable's Redirector.cmd
+            # ("gosredirector.ea.com.exe /console") in the Redirector folder - and given up to 6 s; then once more as admin
+            $exe = Join-Path $redirDir 'gosredirector.ea.com.exe'; $cmd = Join-Path $redirDir 'Redirector.cmd'
             if (-not (Test-Path $exe)) { Say "Redirector not found: $exe"; return $false }
             Say 'Starting the redirector...'
-            try { Start-Process -FilePath $exe -ArgumentList '/console' -WorkingDirectory $redirDir -WindowStyle Minimized | Out-Null }
-            catch { Start-Process -FilePath $exe -ArgumentList '/console' -WorkingDirectory $redirDir -WindowStyle Minimized -Verb RunAs | Out-Null }
-            Wait-Ms 1200; return (Svc-Running 'redir')
+            if (Test-Path $cmd) { Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'Redirector.cmd' -WorkingDirectory $redirDir -WindowStyle Minimized | Out-Null }
+            else { Start-Process -FilePath $exe -ArgumentList '/console' -WorkingDirectory $redirDir -WindowStyle Minimized | Out-Null }
+            for ($i = 0; $i -lt 15 -and -not (Svc-Running 'redir'); $i++) { Wait-Ms 400 }
+            if (-not (Svc-Running 'redir')) {
+                Say 'The redirector did not start - trying again as administrator...'
+                try { Start-Process -FilePath $exe -ArgumentList '/console' -WorkingDirectory $redirDir -WindowStyle Minimized -Verb RunAs | Out-Null } catch { Say 'The redirector needs administrator rights (the request was declined).'; return $false }
+                for ($i = 0; $i -lt 15 -and -not (Svc-Running 'redir'); $i++) { Wait-Ms 400 }
+            }
+            return (Svc-Running 'redir')
         }
         'emu' {
             $exe = Join-Path $emuDir 'mase_bc2.exe'
             if (-not (Test-Path $exe)) { Say "BC2 emulator not found: $exe"; return $false }
+            if (-not (Port-Open 3306)) { Say 'The BC2 emulator needs MySQL, which is not answering on port 3306.'; return $false }
             Say 'Starting the BC2 emulator...'
             Start-Process -FilePath $exe -WorkingDirectory $emuDir -WindowStyle Minimized | Out-Null
-            Wait-Ms 2500; return (Svc-Running 'emu')
+            for ($i = 0; $i -lt 15 -and -not (Svc-Running 'emu'); $i++) { Wait-Ms 400 }
+            # 1.8.6: it must still be up a few seconds later (it quits at once when it can't reach its database)
+            Wait-Ms 2500
+            if (-not (Svc-Running 'emu')) { Say 'The BC2 emulator closed right after starting - check BFBC2-EMU\config.ini (database and IP) and that MySQL is up.'; return $false }
+            return $true
         }
     }
     return $false
@@ -692,6 +743,31 @@ function Start-Backend {
         if (-not (Start-Svc $k)) { Say "$($services[$k].Name) did not start - the rest of the backend was not started."; Update-Services; return $false }
         Update-Services
     }
+    return $true
+}
+# 1.8.6: the game's LAN files - BF-Portable keeps them in Client-Files\BFBC2 (BC2LAN.exe, dinput8.dll, bfbc2.ini).
+# Missing or older ones are copied into the game folder (the replaced file kept once as *.phoenix.bak), and bfbc2.ini
+# must not send the game to EA's closed retail servers (connect_to_retail=0). The host line is left as you set it.
+function Update-GameFiles {
+    $gdir = Split-Path $gameExe; $cf = Join-Path $Portable 'Client-Files\BFBC2'
+    if (-not (Test-Path $cf)) { return $true }   # (not a BF-Portable setup: nothing to update)
+    $n = 0
+    foreach ($f in 'BC2LAN.exe', 'dinput8.dll') {
+        $src = Join-Path $cf $f; $dst = Join-Path $gdir $f
+        if (-not (Test-Path $src)) { continue }
+        $same = (Test-Path $dst) -and ((Get-FileHash $src -Algorithm SHA1).Hash -eq (Get-FileHash $dst -Algorithm SHA1).Hash)
+        if ($same) { continue }
+        if (Test-Path $dst) { Backup-Once $dst }
+        try { Copy-Item $src $dst -Force -ErrorAction Stop; $n++ } catch { Say "Could not copy $f into the game folder ($($_.Exception.Message)) - is the game running, or does the folder need administrator rights?"; return $false }
+    }
+    $ini = Join-Path $gdir 'bfbc2.ini'
+    if (-not (Test-Path $ini) -and (Test-Path (Join-Path $cf 'bfbc2.ini'))) { Copy-Item (Join-Path $cf 'bfbc2.ini') $ini -Force; $n++ }
+    if (Test-Path $ini) {
+        $lines = @(Get-Content $ini); $chg = $false
+        for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^\s*connect_to_retail\s*=\s*1') { $lines[$i] = 'connect_to_retail=0'; $chg = $true } }
+        if ($chg) { Backup-Once $ini; Set-Content $ini $lines -Encoding ascii; $n++ }
+    }
+    if ($n) { Say "Game files updated for the local backend ($n change(s), originals kept as *.phoenix.bak)." }
     return $true
 }
 function Stop-Backend {
@@ -714,7 +790,7 @@ function Update-Services {
         $ui[$map[$k][1]].Text = $(if ($on) { 'ONLINE' } else { 'OFF' })
         $ui[$map[$k][1]].Foreground = $(if ($on) { $cOlive } else { $cDim })
     }
-    $ui.WebRow.Visibility = $(if (Has-Web) { 'Visible' } else { 'Collapsed' })
+    $ui.WebRow.Visibility = $(if ((Has-Web) -and ((Want-Web) -or (Svc-Running 'web'))) { 'Visible' } else { 'Collapsed' })
 }
 
 # ---------------------------------------------------------------- map pictures (1.7.2)
@@ -1156,8 +1232,20 @@ $ui.BtnGame.Add_Click({ Safe {
         $g = Pick-File 'Where is BFBC2Game.exe?' 'BFBC2Game.exe|BFBC2Game.exe|Programs|*.exe' ''
         if (-not $g) { return }; $script:gameExe = $g; $set.Game = $g; Save-Settings; $thumbCache.Clear(); Make-Thumbs $false
     }
+    if (Get-Process 'BFBC2Game' -ErrorAction SilentlyContinue) { Say 'Bad Company 2 is already running.'; return }
+    # 1.8.6: PLAY does the whole job - backend, the game's LAN files, a server if none is up, then the game
+    if (-not (Start-Backend)) { return }
+    if (-not (Update-GameFiles)) { return }
+    Refresh-Servers
+    $up = @($srv.Values | Where-Object { $_.State -ne 'off' })
+    if (-not $up.Count) {
+        Start-Bc2 $script:sel
+        Refresh-Servers
+        if ($srv[$script:sel].State -ne 'off') { Say "Server $($script:sel) is loading - the game starts in 15 s..."; Wait-Ms 15000 }
+    }
     Say 'Starting Bad Company 2... (servers appear in its server browser once they are LIVE)'
-    Start-Process -FilePath $gameExe -WorkingDirectory (Split-Path $gameExe) | Out-Null
+    if ($gameArgs) { Start-Process -FilePath $gameExe -ArgumentList $gameArgs -WorkingDirectory (Split-Path $gameExe) | Out-Null }
+    else { Start-Process -FilePath $gameExe -WorkingDirectory (Split-Path $gameExe) | Out-Null }
 } })
 
 # map list editing (the selected server's maplist.txt)

@@ -30,6 +30,36 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## What changed in 1.8.6 - the new launcher starts the backend, updates and launches the game
+
+Launcher only (Phoenix-Launcher.bat); no bot changes.
+- **Backend:**
+  - **The web server no longer stops the backend.** Apache was started directly and, when it didn't come up, the
+    redirector and the BC2 emulator were never started. BC2 does not need Apache (the emulator has HTTP off, and the
+    classic launcher never started it). Apache is now only started when the classic launcher's backend list has it,
+    and a failure there is not fatal.
+  - **The redirector is started the way the classic launcher does it:** BF-Portable's `Redirector.cmd`
+    (`gosredirector.ea.com.exe /console`) in the Redirector folder, given up to 6 s, then once more as administrator.
+  - **The BC2 emulator is checked properly.** It starts only once MySQL answers on port 3306, and must still be running
+    a few seconds later - it quits at once when it can't reach its database. If it closes, the launcher says why
+    instead of showing it as started.
+- **PLAY BAD COMPANY 2 does the whole job:**
+  1. Starts the backend.
+  2. Updates the game's LAN files from BF-Portable's `Client-Files\BFBC2`.
+     - Copies `BC2LAN.exe` and `dinput8.dll` into the game folder when they are missing or differ, keeping the
+       replaced file once as `*.phoenix.bak`.
+     - Copies `bfbc2.ini` when it is missing, and sets `connect_to_retail=0` if it points the game at EA's closed retail
+       servers. The `host=` line is left as you set it.
+  3. Starts the selected server if none is running, and waits 15 s for it to load.
+  4. Starts `BFBC2Game.exe` with the classic launcher's game arguments, if you set any. It says so if the game is
+     already running.
+- **Paths are found by themselves:**
+  - A freshly extracted package has no settings. The launcher now takes the server and game paths from the newest
+    earlier Phoenix install next to it.
+  - Without one, it finds the game where the EA / Origin / Steam installer registered it.
+- Test mode (`PHOENIX_LAUNCHER_TEST=1`) also shows which game LAN files are present, whether the web server is part
+  of the backend, and how the redirector is started.
+
 ## What changed in 1.8.5 - road to road, machine guns, tanks keep their tanks
 
 - **Stationary guns are aimed again.** 1.8.3's "a light vehicle's driver has no gun" rule also caught stationary guns

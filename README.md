@@ -6,7 +6,7 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.8.5**. Most Conquest maps now have full vehicle support, with better bot
+Current version: **1.8.6**. Most Conquest maps now have full vehicle support, with better bot
 navigation and combat. The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
@@ -97,7 +97,10 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
   emulator), the server, the bots and the game. **Stop All** shuts everything down safely. It also has bot settings, a
   map-list maker, a **Players** window that registers accounts on your BF-Portable backend, and a **LAN games** window
   that finds servers on your network and joins them. (Called `PhoenixLauncher.exe` before 1.8.3b.)
-- **Phoenix-Launcher.bat** (1.7.0, still has issues - use the classic launcher to play): the new launcher in Bad Company 2's olive, sand and amber. Backend lights and
+- **Phoenix-Launcher.bat** (1.7.0; backend and PLAY reworked in 1.8.6 - the classic launcher stays the fallback): the new
+  launcher in Bad Company 2's olive, sand and amber. **PLAY BAD COMPANY 2** does the whole job: starts the backend,
+  updates the game's LAN files from BF-Portable's `Client-Files\BFBC2`, starts the selected server if none is running,
+  then the game. A new package finds the server and game paths of your previous Phoenix install by itself. Backend lights and
   start / stop (MySQL, redirector, BC2 emulator), servers 1 - 4 with live map, mode and players, start / stop / next map,
   bots that attach by themselves when a server's level is up, the bot settings, each server's map list (mode, Vietnam,
   order, rounds, play next) and the tools below. Every map has a picture (1.7.2): its overhead map, made on your PC from
