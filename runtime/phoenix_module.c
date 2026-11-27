@@ -11,7 +11,7 @@
 #include <math.h>
 #include <wchar.h>
 
-PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1, 1, 1, 0};
+PhxConfig g_cfg = {15, 0, 6.0f, 2, 1, 2.5f, 5.0f, 1, 15, 1, 1.0f, 0, 1, 1, 1, 1, 1, 0, 0, 4, 0, 2, 30.0f, 2, 1, 1, 1.2f, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1};
 WCHAR g_rootDir[1024];
 static HMODULE g_module;
 static HANDLE g_logFile = INVALID_HANDLE_VALUE;
@@ -161,6 +161,8 @@ static void load_config(void)
         else if (!_stricmp(k, "RushObjectives")) g_cfg.objectives = x != 0;
         else if (!_stricmp(k, "BotDamage")) g_cfg.botDamage = fmaxf(0.5f, fminf(3.0f, x));
         else if (!_stricmp(k, "ScoreboardNames")) g_cfg.scoreboard = (int)fmaxf(0, fminf(2, x));
+        else if (!_stricmp(k, "ScoreboardProbe")) g_cfg.scoreboardProbe = x != 0;
+        else if (!_stricmp(k, "VerifyFootRoutes")) g_cfg.verifyFootRoutes = x != 0;
         else if (!_stricmp(k, "FrozenRespawn")) g_cfg.frozenRespawn = fmaxf(0, fminf(600, x));
         else if (!_stricmp(k, "NavcacheDir")) {   /* 1.6.9: a folder of your choice for the shared navcache */
             char *e2 = v + strlen(v); while (e2 > v && (e2[-1] == '\r' || e2[-1] == '\n' || e2[-1] == ' ' || e2[-1] == '\t' || e2[-1] == '\\')) *--e2 = 0;

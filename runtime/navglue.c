@@ -581,6 +581,11 @@ void navg_tick(double now)
     }
 }
 
+int navg_direct_foot(const float *from, const float *to)
+{
+    return navg_ready() && nav_direct_route(g_grid, nav_ray, from, to);
+}
+
 int navg_path(int owner, const float *from, const float *to, float *out, int maxPts, int *deferred)
 {
     if (deferred) *deferred = 0;

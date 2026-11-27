@@ -30,7 +30,86 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
-## What changed in 1.8.6 - the new launcher starts the backend, updates and launches the game
+## What changed in 2.0.0 - Project Phoenix 2.0
+
+Version 2.0 joins two lines of work that both started from 1.8.5:
+- The 1.8.6 - 1.8.9 test builds (made with Codex). Their sections follow.
+- The launcher rework that was released alone as 1.8.6. Its section comes after the Codex ones.
+
+One change on top of the Codex builds:
+- **Shoulder parking.** 1.8.9 made light transports park on the road shoulder and get out at every flag, enemy flags
+  included. In the simulator that meant 20% less driving and 20% fewer flags taken (16 Conquest games): transports
+  were left behind, and no crew captured from inside the zone.
+  - At an enemy flag the vehicle drives into the zone again, and its crew captures from inside.
+  - It pulls onto the shoulder at a flag its team already holds, so it doesn't block the road while waiting, and the
+    driver stays until the next flag.
+  - At the end of a road, short of the flag, it still parks off the road and the driver walks on (as in 1.8.9).
+  - Result: back to 1.8.5's distance driven and flags taken.
+- **Launchers:**
+  - The new launcher (Phoenix-Launcher.bat) starts the backend like the classic one: MySQL, then the redirector
+    through Redirector.cmd, then the BC2 emulator once MySQL answers. Apache is optional.
+  - **PLAY BAD COMPANY 2** updates the game's LAN files, starts a server if none is running, then the game.
+  - It also has the Codex builds' scoreboard check (`-ScoreboardServer`).
+  - A new package picks up the paths of your previous install.
+  - The classic launcher (Phoenix-Classic-Launcher.exe) stays in every package.
+- **Vehicles (1.8.7 - 1.8.9 test):**
+  - Drivers queue and reserve lanes on the way out of the HQ.
+  - They check behind before reversing, and check the ground under both wheel tracks before passing or reversing.
+  - Light transports park on a road shoulder at the flag.
+  - Drivers brake earlier before downhill bends.
+- **Vehicles (1.8.4 - 1.8.5):**
+  - Tanks fight enemy tanks instead of steering round them.
+  - A tank is not abandoned where its road ends.
+  - Machine gunners stay on the gun at the flag and get up to three turret tests.
+  - Stationary guns are aimed again.
+  - Short gaps between drawn roads are linked.
+- **Infantry:**
+  - Foot route entrances are checked against the walking grid.
+  - Idle guards and overwatch bots turn away from walls.
+  - Engineers rocket crewed armour.
+  - Bots fire on the move.
+  - A trapped bot redeploys.
+- **Rush:**
+  - Attacking fireteams vary their approach: direct, left or right.
+  - Defenders run to an armed M-COM to defuse it.
+- **Tools:**
+  - Edit-Learned-Spot.bat removes a bad learned spot from a map's .learn file.
+  - Train-Humvee-Gunner.bat runs the offline trainer for the HMMWV gunner and writes an aim profile
+    (bin\PhoenixOffline.exe).
+  - Check-Scoreboard.bat saves the server's player list for comparison with Tab.
+
+## What changed in 1.8.9 test
+
+- HQ drivers reserve narrow portions of their shared departure route. Adjacent supported lanes allow simultaneous departures. The reservation expires if a holder stops advancing for eight seconds.
+- Light transports try a supported shoulder near the flag or at a nearby road end. Passengers wait for the driver to park. Drivers fall back to normal arrival behavior if both sides fail or the maneuver stalls.
+- Drivers allow extra braking distance for a downhill bend ahead of the vehicle.
+- Attacking Rush fireteams cycle through direct, left and right approaches. Side approaches require a usable nav point. The last approach to the M-COM and the defender's defuse take priority.
+- Run Edit-Learned-Spot.bat with the server stopped, open the active map's .learn file, select a single record and click OK. The editor saves a backup beside the file. Removing a record forgets its history. Bots can learn the spot again.
+- Train-Humvee-Gunner.bat runs the offline trainer for HMMWV seat 1. It compares 300 firing samples per setting in each distance band (under 50 m, 50 to under 100 m, and 100 m or more). Accepted profiles can be copied to the active Phoenix navcache as hmmwv-seat1.aim before launch. The BC2 runtime reads that profile. Its live observer does not provide an authoritative per-shot hit event.
+
+## What changed in 1.8.8 test
+
+Ground vehicles queue behind friendly drivers when leaving a team spawn. Passing and reversing now probe both wheel tracks along inclines and reject excessive grades, side slopes and drops.
+
+## What changed in 1.8.7 test
+
+- Idle infantry and overwatch guards check their view once a second. A nearby obstruction makes them look
+  for an open angle. Infantry moving into a corner can try a way out behind them and keep a chosen side.
+- Ground drivers check behind the bumper before applying reverse throttle at low speed. Before passing a
+  stopped vehicle, they probe the ground under both wheel tracks along the proposed detour.
+- To try both changes in one round, use an infantry objective inside a building and a narrow road with a
+  parked vehicle. Watch which direction a guard faces and whether the driver can wait or pass on solid ground.
+
+## What changed in 1.8.6 test
+
+- **Scoreboard investigation.** Phoenix logs each observed player, its team, whether it is in game, whether its
+  network slot matches, and whether its online identities are set. **Check-Scoreboard.bat** saves the local server's
+  admin player list and `serverInfo` count for comparison with Tab. This build leaves the game's scoreboard behavior as it was.
+- **Infantry route entrances.** Check the saved route entrance against the walking grid. If reaching it requires
+  a detour, walk the planned approach first. Try another entrance on failure, and fall back to a grid route to the
+  objective if the check times out or none of the tested entrances work. `VerifyFootRoutes=0` enables the old selection.
+
+## Launcher rework (released alone as 1.8.6, now part of 2.0.0) - the new launcher starts the backend, updates and launches the game
 
 Launcher only (Phoenix-Launcher.bat); no bot changes.
 - **Backend:**

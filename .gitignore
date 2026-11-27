@@ -4,6 +4,7 @@
 bin/*
 !bin/PhoenixBC2.dll
 !bin/PhoenixAttach.exe
+!bin/PhoenixOffline.exe
 harness/phoenix_harness
 /PhoenixLauncher.exe
 *.o
