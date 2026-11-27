@@ -30,6 +30,37 @@ By hand:
 Settings are in **phoenix.ini** (bots per team, difficulty, respawn delay, navigation). They are read when
 Start-Bots.bat attaches.
 
+## 1.8.9 test
+
+- HQ drivers reserve narrow portions of their shared departure route. Adjacent supported lanes allow simultaneous departures. The reservation expires if a holder stops advancing for eight seconds.
+- Light transports try a supported shoulder near the flag or at a nearby road end. Passengers wait for the driver to park. Drivers fall back to normal arrival behavior if both sides fail or the maneuver stalls.
+- Drivers allow extra braking distance for a downhill bend ahead of the vehicle.
+- Attacking Rush fireteams cycle through direct, left and right approaches. Side approaches require a usable nav point. The last approach to the M-COM and the defender's defuse take priority.
+- Run Edit-Learned-Spot.bat with the server stopped, open the active map's .learn file, select a single record and click OK. The editor saves a backup beside the file. Removing a record forgets its history. Bots can learn the spot again.
+- Train-Humvee-Gunner.bat runs the offline trainer for HMMWV seat 1. It compares 300 firing samples per setting in each distance band (under 50 m, 50 to under 100 m, and 100 m or more). Accepted profiles can be copied to the active Phoenix navcache as hmmwv-seat1.aim before launch. The BC2 runtime reads that profile. Its live observer does not provide an authoritative per-shot hit event.
+
+## What changed in 1.8.8 test
+
+Ground vehicles queue behind friendly drivers when leaving a team spawn. Passing and reversing now probe both wheel tracks along inclines and reject excessive grades, side slopes and drops.
+
+## What changed in 1.8.7 test
+
+- Idle infantry and overwatch guards check their view once a second. A nearby obstruction makes them look
+  for an open angle. Infantry moving into a corner can try a way out behind them and keep a chosen side.
+- Ground drivers check behind the bumper before applying reverse throttle at low speed. Before passing a
+  stopped vehicle, they probe the ground under both wheel tracks along the proposed detour.
+- To try both changes in one round, use an infantry objective inside a building and a narrow road with a
+  parked vehicle. Watch which direction a guard faces and whether the driver can wait or pass on solid ground.
+
+## What changed in 1.8.6 test
+
+- **Scoreboard investigation.** Phoenix logs each observed player, its team, whether it is in game, whether its
+  network slot matches, and whether its online identities are set. **Check-Scoreboard.bat** saves the local server's
+  admin player list and `serverInfo` count for comparison with Tab. This build leaves the game's scoreboard behavior as it was.
+- **Infantry route entrances.** Check the saved route entrance against the walking grid. If reaching it requires
+  a detour, walk the planned approach first. Try another entrance on failure, and fall back to a grid route to the
+  objective if the check times out or none of the tested entrances work. `VerifyFootRoutes=0` enables the old selection.
+
 ## What changed in 1.8.5 - road to road, machine guns, tanks keep their tanks
 
 - **Stationary guns are aimed again.** 1.8.3's "a light vehicle's driver has no gun" rule also caught stationary guns

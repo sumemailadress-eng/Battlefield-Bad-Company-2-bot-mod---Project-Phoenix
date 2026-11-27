@@ -4,7 +4,7 @@
 #include "engine.h"
 #include "bc2_observe.h"
 
-#define PHX_VERSION "1.8.5"
+#define PHX_VERSION "1.8.9"
 #define MAX_BOTS 48
 #define MAX_CPS 16
 #define MAX_SPAWNS 64
@@ -52,6 +52,8 @@ typedef struct PhxConfig {
     int routes;             /* bots follow the route network: PhoenixNavcache\\<map>.froutes / .vroutes (Routes=1) */
     int autoRoutes;         /* plan the missing spawn/objective foot routes in the background and save them (AutoRoutes=1) */
     int scanMode;           /* 1.7.1 map scanner: no bots, the map is surveyed flat out (ScanMode=1; the launcher sets it) */
+    int scoreboardProbe;    /* log a server-side roster for comparison with Tab and RCON */
+    int verifyFootRoutes;   /* verify the approach to a saved infantry route before following it */
 } PhxConfig;
 extern PhxConfig g_cfg;
 
@@ -158,6 +160,7 @@ void bots_perf(double *out);   /* 1.6.10: seconds in thinking / driving / moveme
 void navg_tick(double now);
 int  navg_ready(void);
 int  navg_path(int owner, const float *from, const float *to, float *out, int maxPts, int *deferred);
+int  navg_direct_foot(const float *from, const float *to);
 void navg_status(char *out, unsigned size);
 void navg_reset(void);
 void navg_blocked(const float *pos, const float *towards);
@@ -191,7 +194,8 @@ const char *navg_key(void);
 /* routenet.c (1.7.0) */
 #define RN_PTS 256
 void rn_tick(double now);
-int  rn_pick_foot(const float *from, const float *goal, float *out, int max, float *joinDist, int *id);
+int  rn_pick_foot(const float *from, const float *goal, const float rejected[][3], int rejectCount, float *out, int max, float *joinDist, int *id);
+void rn_foot_joined(void);
 int  rn_pick_vehicle(const float *from, float heading, const float *goal, float *out, int max, float *joinDist, int *id);   /* heading: the vehicle's (NAN: none) */
 void rn_vehicle_jam(const float *pos, float amount, double now);   /* 1.7.9: a road that keeps jamming costs more for a while */
 void rn_foot_failed(int id);

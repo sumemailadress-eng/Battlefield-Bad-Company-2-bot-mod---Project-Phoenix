@@ -325,6 +325,7 @@ static void vehicle_destroyed(MVeh *v, uint32_t killer);
 static int los(const float *a, const float *b);
 static float in_of(MVeh *v, int seat, int a) { MPlayer *d = v->occ[seat] ? mp_of(v->occ[seat]) : NULL; return d && d->tick + 2 >= g_mockTick ? d->in[a] : 0; }
 /* a gun on a vehicle: hits enemy soldiers within 1 m of the line, damages enemy-crewed vehicles within 3 m */
+void bots_gunner_feedback(uint32_t,uint32_t,int,int);
 static void vehicle_gun(MVeh *v, int seat, const float *o, const float *dir, float dt)
 {
     uint32_t shooter = v->occ[seat]; if (!shooter) return;
@@ -344,6 +345,7 @@ static void vehicle_gun(MVeh *v, int seat, const float *o, const float *dir, flo
         }
         float off[3] = {w[0]-dir[0]*along, w[1]-dir[1]*along, w[2]-dir[2]*along};
         if (sqrtf(off[0]*off[0] + off[1]*off[1] + off[2]*off[2]) < (cat == 2 ? 1.0f : 3.0f) && los(o, t)) {   /* shells / rockets splash */
+            bots_gunner_feedback(shooter,v->e,seat,1);
             sim_veh_hits++; sim_vh[cat]++; float hp = RF(ts + 0x34) - 60.0f * dt; WF(ts + 0x34, hp);
             if (hp <= 0) kill_soldier(mp[j].p, shooter);
             return;
@@ -365,11 +367,13 @@ static void vehicle_gun(MVeh *v, int seat, const float *o, const float *dir, flo
         }
         float off[3] = {w[0]-dir[0]*along, w[1]-dir[1]*along, w[2]-dir[2]*along};
         if (sqrtf(off[0]*off[0] + off[1]*off[1] + off[2]*off[2]) < 3.5f) {
+            bots_gunner_feedback(shooter,v->e,seat,1);
             sim_veh_hits++; sim_vh[cat]++; t->hp -= (cat == 2 ? 8.0f : 25.0f) * dt;
             if (t->hp <= 0) vehicle_destroyed(t, shooter);
             return;
         }
     }
+    bots_gunner_feedback(shooter,v->e,seat,0);
 }
 static void vehicle_destroyed(MVeh *v, uint32_t killer)
 {

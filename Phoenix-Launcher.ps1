@@ -8,9 +8,9 @@
 # Bad Company 2 is Frostbite 1.5: its own server exe (Frost.Game.Main_Win32_Final.exe), its own RCON commands
 # (admin.runNextLevel, admin.restartMap, mapList.nextLevelIndex - not the BF3 / BF4 / Hardline ones) and its own
 # map list format (a mode line, then "Levels/<map> <rounds>").
-param([string]$Portable = '')
+param([string]$Portable = '', [ValidateRange(0, 4)][int]$ScoreboardServer = 0)
 $ErrorActionPreference = 'Continue'
-$Version = '1.8.5'
+$Version = '1.8.9'
 
 # ---------------------------------------------------------------- launcher settings
 $setPath = Join-Path $PSScriptRoot 'Phoenix-Launcher.ini'
@@ -165,6 +165,55 @@ function Invoke-Rcon($s, [object[]]$commands) {
         $s.RconErr = ''
         return , $out
     } catch { $s.RconErr = "port $($s.RconPort): $($_.Exception.Message)"; try { $c.Close() } catch {}; return $null }
+}
+
+function Format-ScoreboardRoster([string[]]$reply) {
+    if ($reply[0] -ne 'OK') { return "RCON player list: $($reply[0])" }
+    [int]$fields = 0
+    [int]$players = 0
+    if ($reply.Count -lt 4 -or -not [int]::TryParse($reply[1], [ref]$fields) -or
+        $fields -lt 1 -or $fields -gt $reply.Count - 3 -or
+        -not [int]::TryParse($reply[2 + $fields], [ref]$players) -or
+        $players -lt 0 -or $reply.Count -ne 3L + $fields + [long]$fields * $players) {
+        return 'RCON player list returned an unrecognized format.'
+    }
+    $columns = $reply[2..(1 + $fields)]
+    $available = @('name', 'teamId', 'squadId', 'kills', 'deaths', 'score') | Where-Object { $_ -in $columns }
+    "RCON player rows: $players"
+    for ($i = 0; $i -lt $players; $i++) {
+        $row = 3 + $fields + $i * $fields
+        $values = foreach ($key in $available) {
+            $index = [Array]::IndexOf($columns, $key)
+            if ($index -ge 0) { '{0}={1}' -f $key, $reply[$row + $index] }
+        }
+        $values -join ' | '
+    }
+}
+
+if ($ScoreboardServer) {
+    $s = $srv[$ScoreboardServer]
+    $report = @("Phoenix $Version scoreboard probe - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')",
+                "BF-Portable server $ScoreboardServer on loopback port $($s.RconPort)")
+    $info = Invoke-Rcon $s @(, @('serverInfo'))
+    if ($info -and $info[0][0] -eq 'OK' -and $info[0].Count -ge 6) {
+        $report += "serverInfo reports $($info[0][2])/$($info[0][3]) players on $($info[0][5])"
+    } else {
+        $report += "serverInfo unavailable. $($s.RconErr)"
+    }
+    $roster = Invoke-Rcon $s @(, @('admin.listPlayers', 'all'))
+    if ($roster -and $roster[0][0] -in @('InvalidArguments', 'InvalidPlayerSubset')) {
+        $roster = Invoke-Rcon $s @(, @('admin.listPlayers'))
+    }
+    if ($roster) { $report += @(Format-ScoreboardRoster $roster[0]) }
+    else { $report += "RCON player list unavailable. $($s.RconErr)" }
+    $report | Write-Output
+    try {
+        New-Item -ItemType Directory -Path $reportsDir -Force -ErrorAction Stop | Out-Null
+        $reportFile = Join-Path $reportsDir ("scoreboard-rcon-{0:yyyyMMdd-HHmmss-fff}.txt" -f (Get-Date))
+        $report | Set-Content -LiteralPath $reportFile -Encoding UTF8 -ErrorAction Stop
+        Write-Output "Saved $reportFile"
+    } catch { Write-Warning $_.Exception.Message }
+    return
 }
 
 # The server's own log (Instance\RuntimeLog_*.log, written as it runs) says when a level is loading and when it is up:

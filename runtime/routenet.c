@@ -5,7 +5,7 @@
                 From every team's spawn area to every objective (flag or M-COM) and between every pair of objectives,
                 planned once on the walking grid (in the background, one at a time) and saved. Routes drawn in the 3D map
                 go in the same file and are used the same way. A bot going to an objective joins the route that ends there
-                at its nearest point and walks it to the end - after a fight, a side-step or a push it goes back to it.
+   at a reachable point and walks it to the end - after a fight, a side-step or a push it goes back to it.
    Vehicle routes navcache\<map>.vroutes "route ax ay az bx by bz n x y z x y z ..." (drawn in the 3D map), plus the
                 lines drawn in LearnViewer (<map>.routes). A driver whose vehicle is near one that leads towards its flag
                 drives it to its end and never swaps it for its own plan; from the end the drive map takes over.
@@ -459,7 +459,15 @@ void rn_tick(double now)
 /* ---- picking. A route (either way along it) that ends within endR of the goal, joined at its point nearest the bot
    within joinR; the shortest walk wins (joining distance counts twice, failures 30 m each). Writes the points from
    the joining point to the end. */
-static int pick(RNRoute *set, int count, const float *from, const float *goal, float endR, float joinR, int vehicle, float *out, int max, float *joinDist, int *id)
+static int entry_rejected(const float *point, const float rejected[][3], int count)
+{
+    for (int i = 0; i < count; i++)
+        if (fabsf(point[1] - rejected[i][1]) < 1.5f && d2(point, rejected[i]) < 3.0f) return 1;
+    return 0;
+}
+
+static int pick(RNRoute *set, int count, const float *from, const float *goal, float endR, float joinR, int vehicle,
+                const float rejected[][3], int rejectCount, float *out, int max, float *joinDist, int *id)
 {
     int best = -1, bestDir = 0, bestK = 0; float bestScore = 1e30f, bestJoin = 0;
     float here = d2(from, goal);
@@ -470,7 +478,12 @@ static int pick(RNRoute *set, int count, const float *from, const float *goal, f
             if (!vehicle && (endGap > endR || fabsf(end[1] - goal[1]) > 5)) continue;
             if (vehicle && here - endGap < 30) continue;   /* a vehicle route must take it 30 m+ closer to its flag */
             int k = -1; float kd = 1e30f;
-            for (int q = 0; q < r->n; q++) { const float *p = r->pts[q]; float d = d2(p, from) + fabsf(p[1] - from[1]) * (vehicle ? 0.5f : 2.0f); if (d < kd) { kd = d; k = q; } }
+            for (int q = 0; q < r->n; q++) {
+                if (!vehicle && rejectCount && (q == (dir ? 0 : r->n - 1) || entry_rejected(r->pts[q], rejected, rejectCount))) continue;
+                const float *p = r->pts[q];
+                float d = d2(p, from) + fabsf(p[1] - from[1]) * (vehicle ? 0.5f : 2.0f);
+                if (d < kd) { kd = d; k = q; }
+            }
             if (k < 0 || kd > joinR) continue;
             float rem = 0;
             if (!dir) { for (int q = k + 1; q < r->n; q++) rem += d2(r->pts[q - 1], r->pts[q]); if (k == r->n - 1) continue; }
@@ -488,13 +501,12 @@ static int pick(RNRoute *set, int count, const float *from, const float *goal, f
     if (id) *id = best;
     return n;
 }
-int rn_pick_foot(const float *from, const float *goal, float *out, int max, float *joinDist, int *id)
+int rn_pick_foot(const float *from, const float *goal, const float rejected[][3], int rejectCount, float *out, int max, float *joinDist, int *id)
 {
     if (!g_cfg.routes || !g_fn) return 0;
-    int n = pick(g_f, g_fn, from, goal, 12, 45, 0, out, max, joinDist, id);
-    if (n) g_used++;
-    return n;
+    return pick(g_f, g_fn, from, goal, 12, 45, 0, rejected, rejectCount, out, max, joinDist, id);
 }
+void rn_foot_joined(void) { g_used++; }
 int rn_pick_vehicle(const float *from, float heading, const float *goal, float *out, int max, float *joinDist, int *id)
 {
     if (!g_cfg.routes || !g_vn) return 0;
@@ -527,7 +539,7 @@ int rn_pick_vehicle(const float *from, float heading, const float *goal, float *
         }
         if (id) *id = -1; g_vUsed++; return n; }
     if (g_gn >= 2 && blocks_active()) return 0;   /* 1.7.7: the network has no open way (a road closed): the grid planner goes round instead */
-    n = pick(g_v, g_vn, from, goal, 0, 60, 1, out, max, joinDist, id);
+    n = pick(g_v, g_vn, from, goal, 0, 60, 1, NULL, 0, out, max, joinDist, id);
     if (n) g_vUsed++;
     return n;
 }

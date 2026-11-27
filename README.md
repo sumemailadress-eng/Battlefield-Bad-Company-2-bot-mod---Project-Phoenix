@@ -6,13 +6,24 @@ and drives them through the same input path the game's own AI uses. Bots capture
 tanks, jeeps, quads and boats, fly helicopters, man stationary guns, revive, repair and resupply. They also learn each map
 as they play it.
 
-Current version: **1.8.5**. Most Conquest maps now have full vehicle support, with better bot
+Current version: **1.8.9 test**. Most Conquest maps now have full vehicle support, with better bot
 navigation and combat. The full history is in [CHANGELOG.md](CHANGELOG.md), and the engine reverse-engineering notes
 are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
 
 > Phoenix is a fan project for preserving and playing a game whose official servers are gone. It needs your own
 > copy of Bad Company 2 and a BF-Portable server setup. Battlefield and Bad Company are trademarks of Electronic Arts;
 > this project isn't affiliated with or endorsed by EA or DICE.
+
+---
+
+## Test the scoreboard
+
+1. Close any older Phoenix server instance and start this build with **Phoenix-Classic-Launcher.exe**. Set the server and game paths if prompted and join a local match. Three or four bots per team are enough.
+2. Once the bots spawn, get a kill or let a bot kill you. Open **Tab** and take a screenshot or note which names appear.
+3. While the match is running, double-click **Check-Scoreboard.bat**. It reads the server's admin player list and saves it under `reports\scoreboard-rcon-*.txt`. It checks BF-Portable server 1. To check another instance, pass its number with `-ScoreboardServer` when running `Phoenix-Launcher.ps1`.
+4. Keep that report and the latest `reports\<run>\runtime.log` with your Tab result. The `scoreboard probe:` rows show the server roster, the network slot, and whether each identity is set. The report also records when the admin list is unavailable.
+
+The test build gathers evidence about the missing Tab rows. The backend account script was part of an earlier identity experiment and is optional for this test. For a gameplay check, watch infantry enter saved routes around buildings and on stairs. Set `VerifyFootRoutes=0` in `phoenix.ini` and restart if you want to compare the old route entry behavior.
 
 ---
 
@@ -135,9 +146,7 @@ are in [docs/ENGINE-NOTES.md](docs/ENGINE-NOTES.md).
    `D:\BF-Portable\Battlefield_bc2_Server\PhoenixNavcache`), and every install uses it. The first time a new install
    attaches, the `navcache` folder of that install is merged in. To bring in an older install's `navcache`, copy
    its files into `PhoenixNavcache`, or start the bots once from that install.
-2. If you want the bots to show up on the scoreboard with names, run `backend\Add-Bot-Accounts.bat` once with MySQL
-   running. It adds one backend account per bot.
-3. Open `phoenix.ini` and set the number of bots and the difficulty, or set them in the launcher.
+2. Open `phoenix.ini` and set the number of bots and the difficulty, or set them in the launcher.
 
 ## Play
 
